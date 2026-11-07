@@ -4,7 +4,7 @@
   const $ = (s, el = document) => el.querySelector(s);
   const view = $("#view");
   const sheet = $("#sheet");
-  const sheetCard = $(".sheet-card", sheet);
+  const sheetCard = $(".vt", sheet);
   const qInput = $("#q");
 
   const CAT_ORDER = ["匕首", "手套", "步枪", "手枪", "微型冲锋枪", "重型武器", "装备"];
@@ -25,6 +25,7 @@
   let rarityRank = {}, rarityById = {}, hasColors = false;
   let lastListHash = "#/";
   let listAbort = null;
+  let currentList = [];
   const filterState = { key: "", rar: new Set(), col: new Set(), st: false, sort: "rarity" };
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -134,6 +135,7 @@
   }
 
   function renderHome() {
+    currentList = [];
     const cats = new Map();
     skins.forEach((s) => {
       if (!cats.has(s.catName)) cats.set(s.catName, new Map());
@@ -207,6 +209,7 @@
         sort === "name" ? a.name.localeCompare(b.name, "zh") :
         sort === "rarity-asc" ? (rarityRank[a.rarity] - rarityRank[b.rarity]) || a.name.localeCompare(b.name, "zh") :
         (rarityRank[b.rarity] - rarityRank[a.rarity]) || a.name.localeCompare(b.name, "zh"));
+      currentList = list;
       n.textContent = list.length === items.length ? `${items.length} 款` : `${list.length} / ${items.length} 款`;
       grid.innerHTML = list.length ? list.map(card).join("") : `<p class="empty">${items.length ? "没有符合筛选的皮肤，试试清除几个条件。" : "没有找到。可以试试武器名、皮肤名或英文名，比如 “AK 火神” 或 “Doppler”。"}</p>`;
     }
@@ -253,6 +256,7 @@
     const items = c.items.map((id) => byId.get(id)).filter(Boolean);
     const rare = c.rare.map((id) => byId.get(id)).filter(Boolean);
     const tiers = meta.rarities.slice().reverse().map((r) => [r, items.filter((s) => s.rarity === r.id)]).filter(([, l]) => l.length);
+    currentList = tiers.flatMap(([, l]) => l).concat(rare);
     view.innerHTML = `<div class="wrap">
       <nav class="crumb"><a href="#/cases">武器箱</a></nav>
       <div class="head"><div><h1>${esc(c.name)}</h1><div class="en">${esc(c.en)}</div></div><span class="n">${esc(c.date || "")}</span></div>
@@ -261,64 +265,209 @@
     </div>`;
   }
 
-  // ---------- detail sheet ----------
+
+  // ---------- showcase (展柜) ----------
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let current = null;
+
   function marketName(s, wear) {
-    let n = s.en || "";
-    if (s.st && wear) n = n.startsWith("★ ") ? n.replace("★ ", "★ StatTrak™ ") : "StatTrak™ " + n;
+    const n = s.en || "";
     return wear ? `${n} (${wear})` : n;
   }
 
-  function openSheet(s) {
+  function listFor(s) {
+    if (currentList.length && currentList.some((x) => x.id === s.id)) return currentList;
+    return skins.filter((x) => x.weapon === s.weapon).sort((a, b) => (rarityRank[b.rarity] - rarityRank[a.rarity]) || a.name.localeCompare(b.name, "zh"));
+  }
+
+  function siblings(s) {
+    const key = s.coll[0];
+    let pool = key ? skins.filter((x) => x.coll.includes(key)) : [];
+    let label = key && meta.collections[key] ? meta.collections[key].name : "";
+    if (pool.length < 2 && s.crates[0]) {
+      const c = crateById.get(s.crates[0]);
+      if (c) { pool = c.items.concat(c.rare).map((id) => byId.get(id)).filter(Boolean); label = c.name; }
+    }
+    const seen = new Set();
+    pool = pool.filter((x) => x.id !== s.id && x.name !== s.name && !seen.has(x.name) && seen.add(x.name));
+    pool.sort((a, b) => rarityRank[b.rarity] - rarityRank[a.rarity]);
+    return [label, pool.slice(0, 12)];
+  }
+
+  function openSheet(s, dir) {
+    current = s;
+    const list = listFor(s);
+    const idx = list.findIndex((x) => x.id === s.id);
     const variants = skins.filter((x) => x.name === s.name);
     const cratesOf = s.crates.map((id) => crateById.get(id)).filter(Boolean);
     const colls = s.coll.map((id) => meta.collections[id]).filter(Boolean);
     const min = s.min ?? 0, max = s.max ?? 1;
     const avail = WEARS.map((w) => w[3] > min && w[2] < max);
-    const r = rarityById[s.rarity] || { name: "", color: "#888" };
+    const r = rarityById[s.rarity] || { name: "", color: "#8c949c" };
+    const [sibLabel, sibs] = siblings(s);
+    const no = String(skins.indexOf(s) + 1).padStart(4, "0");
+    const pattern = shortName(s);
 
     sheetCard.style.setProperty("--rc", r.color);
     sheetCard.innerHTML = `
-      <button class="close" data-close aria-label="关闭">×</button>
-      <div class="stage">${s.img ? `<img alt="${esc(s.name)}" src="${esc(img(s.img, 512))}">` : `<span class="noimg">暂无图片</span>`}</div>
-      <div class="info">
-        <div><h2 id="sheet-title">${esc(s.name)}</h2><div class="en">${esc(s.en)}</div></div>
-        <div class="rline"><span class="rpill"><i></i>${esc(r.name)}</span>${s.st ? `<span class="badge st">StatTrak™</span>` : ""}${s.sv ? `<span class="badge sv">纪念品</span>` : ""}${s.phase ? `<span class="badge">${esc(s.phase)}</span>` : ""}</div>
-        ${variants.length > 1 ? `<div class="variants" aria-label="同款其他版本">${variants.map((v) => `<button data-go="${esc(v.id)}" aria-current="${v.id === s.id}"><img alt="" src="${esc(img(v.img, 128))}">${esc(v.phase || "默认")}</button>`).join("")}</div>` : ""}
-        ${s.desc ? `<p>${esc(s.desc)}</p>` : ""}
-        ${s.lore ? `<p class="lore">${esc(s.lore)}</p>` : ""}
-        <div class="wear">
-          <div class="wear-bar" aria-label="可出外观">${WEAR_SHORT.map((w, i) => `<span class="${avail[i] ? "on" : ""}">${w}</span>`).join("")}</div>
-          <div class="range">磨损区间 ${min.toFixed(2)} – ${max.toFixed(2)}</div>
+      <div class="vt-top">
+        <button class="vt-btn" data-close aria-label="返回列表"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5"/></svg><span>返回</span></button>
+        <span class="vt-no">展品 No.${no}</span>
+        <span class="vt-pager">
+          <span class="vt-count">${idx + 1} / ${list.length}</span>
+          <button class="vt-btn" data-step="-1" aria-label="上一件"${idx <= 0 ? " disabled" : ""}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5L7 10l5.5 5.5"/></svg></button>
+          <button class="vt-btn" data-step="1" aria-label="下一件"${idx >= list.length - 1 ? " disabled" : ""}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 4.5L13 10l-5.5 5.5"/></svg></button>
+        </span>
+      </div>
+      <section class="vt-stage" aria-label="展品图像">
+        <div class="beam" aria-hidden="true"></div>
+        <canvas class="dust" aria-hidden="true"></canvas>
+        <div class="plinth" aria-hidden="true"></div>
+        <div class="obj ${dir ? "enter-" + (dir > 0 ? "r" : "l") : "enter"}">
+          <div class="tilt">
+            ${s.img ? `<img class="main" alt="${esc(s.name)}" src="${esc(img(s.img, 512))}"><span class="sheen" aria-hidden="true" style="--m:url('${esc(img(s.img, 512))}')"></span>` : `<span class="noimg">暂无图片</span>`}
+          </div>
+          ${s.img ? `<img class="refl" alt="" aria-hidden="true" src="${esc(img(s.img, 512))}">` : ""}
         </div>
-        <dl class="kv">
-          <dt>武器</dt><dd><a href="#/w/${encodeURIComponent(s.weapon)}">${esc(s.weaponName)}</a></dd>
-          ${colls.length ? `<dt>收藏品</dt><dd>${colls.map((c) => `<a href="#/coll/${encodeURIComponent(c.id)}">${esc(c.name)}</a>`).join("、")}</dd>` : ""}
-          ${cratesOf.length ? `<dt>出自</dt><dd>${cratesOf.slice(0, 6).map((c) => `<a href="#/case/${encodeURIComponent(c.id)}">${esc(c.name)}</a>`).join("、")}${cratesOf.length > 6 ? ` 等 ${cratesOf.length} 个` : ""}</dd>` : ""}
-          ${s.pattern ? `<dt>涂装</dt><dd>${esc(s.pattern)}</dd>` : ""}
-        </dl>
-        ${s.en ? `<div class="links">${WEARS.filter((w, i) => avail[i]).map((w) => `<a target="_blank" rel="noopener" href="https://steamcommunity.com/market/listings/730/${encodeURIComponent(marketName({ ...s, st: false }, w[1]))}">Steam · ${w[0]}</a>`).join("")}
-          <a target="_blank" rel="noopener" href="https://buff.163.com/market/csgo#game=csgo&page_num=1&search=${encodeURIComponent(s.name.replace("（★）", ""))}">BUFF 搜索</a></div>` : ""}
-      </div>`;
+        <p class="vt-hint" aria-hidden="true">拖动或移动指针旋转 · 左右滑动换展品</p>
+      </section>
+      <aside class="vt-label">
+        <div class="eyebrow">${esc(s.catName)} <i></i> ${esc(s.weaponName)}</div>
+        <h2 id="sheet-title">${esc(pattern)}</h2>
+        <div class="vt-en">${esc((s.en.split("|")[1] || s.en).trim())}</div>
+        <div class="vt-rar"><span class="dot"></span>${esc(r.name)}${s.phase ? `<span class="tag">${esc(s.phase)}</span>` : ""}${s.st ? `<span class="tag st">StatTrak™</span>` : ""}${s.sv ? `<span class="tag sv">纪念品</span>` : ""}</div>
+
+        ${variants.length > 1 ? `<div class="vt-sec"><h3>版本</h3><div class="vt-variants">${variants.map((v) => `<button data-go="${esc(v.id)}" aria-current="${v.id === s.id}"><img alt="" loading="lazy" src="${esc(img(v.img, 128))}"><span>${esc(v.phase || "默认")}</span></button>`).join("")}</div></div>` : ""}
+
+        ${s.desc || s.lore ? `<div class="vt-sec">${s.desc ? `<p class="vt-desc">${esc(s.desc)}</p>` : ""}${s.lore ? `<blockquote class="vt-lore">${esc(s.lore)}</blockquote>` : ""}</div>` : ""}
+
+        <div class="vt-sec"><h3>外观</h3>
+          <div class="spectrum" aria-label="磨损区间 ${min.toFixed(2)} 至 ${max.toFixed(2)}">
+            <div class="spec-bar"><b style="left:${min * 100}%;width:${(max - min) * 100}%"></b></div>
+            <div class="spec-ticks">${WEARS.map((w, i) => `<span class="${avail[i] ? "on" : ""}" style="left:${((w[2] + w[3]) / 2) * 100}%">${WEAR_SHORT[i]}</span>`).join("")}</div>
+          </div>
+          <div class="spec-range"><span>磨损 ${min.toFixed(2)}</span><span>${max.toFixed(2)}</span></div>
+        </div>
+
+        <div class="vt-sec"><h3>来源</h3>
+          <dl class="vt-kv">
+            <dt>武器</dt><dd><a href="#/w/${encodeURIComponent(s.weapon)}">${esc(s.weaponName)}</a></dd>
+            ${colls.length ? `<dt>收藏品</dt><dd>${colls.map((c) => `<a href="#/coll/${encodeURIComponent(c.id)}">${esc(c.name)}</a>`).join("、")}</dd>` : ""}
+            ${s.pattern ? `<dt>涂装</dt><dd>${esc(s.pattern)}</dd>` : ""}
+          </dl>
+          ${cratesOf.length ? `<div class="vt-crates">${cratesOf.slice(0, 8).map((c) => `<a href="#/case/${encodeURIComponent(c.id)}"><img alt="" loading="lazy" src="${esc(img(c.img, 128))}"><span>${esc(c.name)}</span></a>`).join("")}</div>${cratesOf.length > 8 ? `<p class="vt-more">另有 ${cratesOf.length - 8} 个武器箱</p>` : ""}` : ""}
+        </div>
+
+        ${sibs.length ? `<div class="vt-sec"><h3>同展区 · ${esc(sibLabel)}</h3><div class="vt-sibs">${sibs.map((x) => `<button data-go="${esc(x.id)}" style="--rc:${rc(x)}" title="${esc(x.name)}"><img alt="" loading="lazy" src="${esc(img(x.img, 128))}"><span>${esc(shortName(x))}</span></button>`).join("")}</div></div>` : ""}
+
+        ${s.en ? `<div class="vt-links">${WEARS.filter((w, i) => avail[i]).map((w) => `<a target="_blank" rel="noopener" href="https://steamcommunity.com/market/listings/730/${encodeURIComponent(marketName(s, w[1]))}">Steam · ${w[0]}</a>`).join("")}<a target="_blank" rel="noopener" href="https://buff.163.com/market/csgo#game=csgo&page_num=1&search=${encodeURIComponent(s.name.replace("（★）", ""))}">BUFF 搜索</a></div>` : ""}
+      </aside>`;
+
+    const wasHidden = sheet.hidden;
     sheet.hidden = false;
     document.body.style.overflow = "hidden";
+    if (wasHidden) { sheet.classList.remove("lit"); requestAnimationFrame(() => requestAnimationFrame(() => sheet.classList.add("lit"))); }
+    $(".vt-label", sheetCard).scrollTop = 0;
     sheetCard.scrollTop = 0;
-    $(".close", sheetCard).focus({ preventScroll: true });
+    bindStage();
+    if (wasHidden) $("[data-close]", sheetCard).focus({ preventScroll: true });
+  }
+
+  function step(d) {
+    if (!current) return;
+    const list = listFor(current);
+    const i = list.findIndex((x) => x.id === current.id) + d;
+    if (i < 0 || i >= list.length) return;
+    go(list[i], d);
+  }
+  function go(s, dir) {
+    history.replaceState(null, "", "#/skin/" + encodeURIComponent(s.id));
+    openSheet(s, dir || 0);
+  }
+
+  // pointer tilt, swipe, and drifting dust in the light beam
+  let dustStop = null;
+  function bindStage() {
+    const stage = $(".vt-stage", sheetCard);
+    const tilt = $(".tilt", sheetCard);
+    if (!stage || !tilt) return;
+    let sx = 0, sy = 0, t0 = 0, dragging = false;
+    const setTilt = (x, y) => {
+      tilt.style.setProperty("--ry", (x * 22).toFixed(2) + "deg");
+      tilt.style.setProperty("--rx", (-y * 12).toFixed(2) + "deg");
+      tilt.style.setProperty("--sx", (50 + x * 60).toFixed(1) + "%");
+    };
+    const rel = (e) => { const b = stage.getBoundingClientRect(); return [((e.clientX - b.left) / b.width - 0.5) * 2, ((e.clientY - b.top) / b.height - 0.5) * 2]; };
+    stage.addEventListener("pointermove", (e) => {
+      if (reduceMotion) return;
+      if (e.pointerType === "mouse" || dragging) { const [x, y] = rel(e); setTilt(Math.max(-1, Math.min(1, x)), Math.max(-1, Math.min(1, y))); }
+    });
+    stage.addEventListener("pointerleave", () => setTilt(0, 0));
+    stage.addEventListener("pointerdown", (e) => { dragging = true; sx = e.clientX; sy = e.clientY; t0 = Date.now(); });
+    const end = (e) => {
+      if (!dragging) return; dragging = false; setTilt(0, 0);
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - t0 < 600) step(dx < 0 ? 1 : -1);
+    };
+    stage.addEventListener("pointerup", end);
+    stage.addEventListener("pointercancel", () => { dragging = false; setTilt(0, 0); });
+    startDust($(".dust", sheetCard));
+  }
+
+  function startDust(cv) {
+    if (dustStop) dustStop();
+    if (!cv || reduceMotion) return;
+    const ctx = cv.getContext("2d");
+    let w = 0, h = 0, raf = 0, alive = true;
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    const size = () => { const b = cv.getBoundingClientRect(); w = b.width; h = b.height; cv.width = w * dpr; cv.height = h * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+    size();
+    const motes = Array.from({ length: 46 }, () => ({ x: Math.random(), y: Math.random(), r: 0.4 + Math.random() * 1.4, v: 0.00008 + Math.random() * 0.00022, p: Math.random() * 6.28 }));
+    let last = performance.now();
+    const frame = (now) => {
+      if (!alive) return;
+      const dt = Math.min(50, now - last); last = now;
+      ctx.clearRect(0, 0, w, h);
+      for (const m of motes) {
+        m.y -= m.v * dt; m.p += dt * 0.0012;
+        if (m.y < -0.05) { m.y = 1.05; m.x = Math.random(); }
+        const px = (0.5 + (m.x - 0.5) * (0.25 + (1 - m.y) * 0.5)) * w + Math.sin(m.p) * 6;
+        const inBeam = 1 - Math.abs(m.x - 0.5) * 2;
+        ctx.globalAlpha = 0.08 + 0.32 * inBeam * (0.5 + 0.5 * Math.sin(m.p * 1.7));
+        ctx.fillStyle = "#fff4e0";
+        ctx.beginPath(); ctx.arc(px, m.y * h, m.r, 0, 6.283); ctx.fill();
+      }
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    addEventListener("resize", size);
+    dustStop = () => { alive = false; cancelAnimationFrame(raf); removeEventListener("resize", size); dustStop = null; };
   }
 
   function closeSheet(fromRoute) {
     if (sheet.hidden) return;
     sheet.hidden = true;
+    sheet.classList.remove("lit");
+    current = null;
+    if (dustStop) dustStop();
     document.body.style.overflow = "";
     if (!fromRoute) location.hash = lastListHash;
   }
 
   sheet.addEventListener("click", (e) => {
-    const go = e.target.closest("[data-go]");
-    if (go) { history.replaceState(null, "", "#/skin/" + encodeURIComponent(go.dataset.go)); openSheet(byId.get(go.dataset.go)); return; }
+    const g = e.target.closest("[data-go]");
+    if (g) { go(byId.get(g.dataset.go)); return; }
+    const st = e.target.closest("[data-step]");
+    if (st) { step(+st.dataset.step); return; }
     if (e.target.closest("[data-close]")) closeSheet();
-    else if (e.target.closest(".kv a")) { sheet.hidden = true; document.body.style.overflow = ""; }
+    else if (e.target.closest(".vt-kv a, .vt-crates a")) { sheet.hidden = true; sheet.classList.remove("lit"); if (dustStop) dustStop(); document.body.style.overflow = ""; }
   });
-  addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+  addEventListener("keydown", (e) => {
+    if (sheet.hidden) return;
+    if (e.key === "Escape") closeSheet();
+    else if (e.key === "ArrowRight") step(1);
+    else if (e.key === "ArrowLeft") step(-1);
+  });
 
   boot();
 })();
