@@ -1,302 +1,80 @@
 (() => {
   "use strict";
 
+  // ===== constants =====
   const $ = (s, el = document) => el.querySelector(s);
-  const view = $("#view");
-  const sheet = $("#sheet");
-  const sheetCard = $(".vt", sheet);
-  const qInput = $("#q");
-
+  const app = $("#app");
   const CAT_ORDER = ["匕首", "手套", "步枪", "手枪", "微型冲锋枪", "重型武器", "装备"];
-  const COLORS = [
-    ["red", "红", "#d8403a"], ["orange", "橙", "#ea8a2e"], ["yellow", "黄", "#e9c43a"],
-    ["green", "绿", "#4daa57"], ["cyan", "青", "#2fb8b2"], ["blue", "蓝", "#3e78de"],
-    ["purple", "紫", "#8a58d6"], ["pink", "粉", "#e47bb3"], ["brown", "棕", "#8a5a33"],
-    ["black", "黑", "#1e2228"], ["gray", "灰", "#8c949c"], ["white", "白", "#eef0f2"],
-  ];
+  const CAT_EN = { "匕首": "KNIVES", "手套": "GLOVES", "步枪": "RIFLES", "手枪": "PISTOLS", "微型冲锋枪": "SMGS", "重型武器": "HEAVY", "装备": "EQUIPMENT" };
+  const CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
   const WEARS = [
     ["崭新出厂", "Factory New", 0, 0.07], ["略有磨损", "Minimal Wear", 0.07, 0.15],
     ["久经沙场", "Field-Tested", 0.15, 0.38], ["破损不堪", "Well-Worn", 0.38, 0.45],
     ["战痕累累", "Battle-Scarred", 0.45, 1],
   ];
   const WEAR_SHORT = ["崭新", "略磨", "久经", "破损", "战痕"];
+  const STAMPS = { 1: "普通", 2: "普通", 3: "限制", 4: "限制", 5: "机密", 6: "绝密", 7: "绝密", 8: "违禁", 9: "违禁" };
+  const PER_PAGE = 12;        // photos per page on an index sheet
+  const ROWS_PER_PAGE = 13;   // rows per page on a list (cases, collections)
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const wideQuery = matchMedia("(min-width: 1000px) and (min-aspect-ratio: 1/1)");
 
+  // ===== data =====
   let skins = [], byId = new Map(), crates = [], crateById = new Map(), meta = null;
-  let rarityRank = {}, rarityById = {}, hasColors = false;
-  let lastListHash = "#/";
-  let listAbort = null;
-  let currentList = [];
-  const filterState = { key: "", rar: new Set(), col: new Set(), st: false, sort: "rarity" };
+  let rarityRank = {}, rarityById = {};
+  let cats = [];
+  const weaponById = new Map();
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const img = (url, size) => (url ? `${url}/${size}fx${size}f` : "");
   const rc = (s) => (rarityById[s.rarity] || {}).color || "#8c949c";
   const shortName = (s) => (s.name.split("|")[1] || s.name).trim();
+  const byRarity = (a, b) => (rarityRank[b.rarity] - rarityRank[a.rarity]) || a.name.localeCompare(b.name, "zh");
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const chapterNo = (i) => CN_NUM[i] || String(i + 1);
+  const enc = encodeURIComponent;
 
   async function boot() {
     try {
       const [a, b, c] = await Promise.all(["skins", "crates", "meta"].map((n) => fetch(`data/${n}.json`).then((r) => { if (!r.ok) throw new Error(n); return r.json(); })));
       skins = a; crates = b; meta = c;
     } catch (e) {
-      view.innerHTML = `<p class="empty">数据没有载入成功，请刷新页面重试。</p>`;
+      app.innerHTML = `<p class="bk-fail">图鉴没有载入成功，请刷新页面重试。</p>`;
       return;
     }
     meta.rarities.forEach((r, i) => { rarityRank[r.id] = i; rarityById[r.id] = r; });
     skins.forEach((s) => byId.set(s.id, s));
     crates.forEach((c) => crateById.set(c.id, c));
-    hasColors = skins.some((s) => s.colors && s.colors.length);
-    measureTop();
-    addEventListener("resize", measureTop);
-    addEventListener("hashchange", route);
-    route();
-  }
-
-  function measureTop() {
-    document.documentElement.style.setProperty("--topbar", $(".top").offsetHeight + "px");
-  }
-
-  // ---------- routing ----------
-  function route() {
-    const h = location.hash || "#/";
-    const parts = h.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
-    const [kind, arg] = parts;
-    document.querySelectorAll("[data-nav]").forEach((a) => a.removeAttribute("aria-current"));
-
-    if (kind === "skin") {
-      const s = byId.get(arg);
-      if (!s) { location.hash = "#/"; return; }
-      if (!view.dataset.ready) { lastListHash = "#/w/" + encodeURIComponent(s.weapon); renderListRoute(lastListHash); view.dataset.ready = "1"; }
-      openSheet(s);
-      return;
-    }
-    closeSheet(true);
-    lastListHash = h;
-    renderListRoute(h);
-    view.dataset.ready = "1";
-  }
-
-  function renderListRoute(h) {
-    const parts = h.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
-    const [kind, arg] = parts;
-    const nav = (n) => { const a = $(`[data-nav="${n}"]`); if (a) a.setAttribute("aria-current", "page"); };
-    if (kind !== "search") qInput.value = "";
-
-    if (!kind) { nav("home"); renderHome(); }
-    else if (kind === "w") {
-      const list = skins.filter((s) => s.weapon === arg);
-      if (!list.length) return renderHome();
-      nav("home");
-      renderList({ key: h, title: list[0].weaponName, en: list[0].weaponEn, items: list,
-        crumb: [["#/", "武器"], [null, list[0].catName]] });
-    }
-    else if (kind === "all") {
-      nav("all");
-      const list = arg ? skins.filter((s) => s.catName === arg) : skins;
-      renderList({ key: h, title: arg || "全部皮肤", en: arg ? "" : "All skins", items: list, crumb: arg ? [["#/all", "全部"]] : null, showCats: !arg });
-    }
-    else if (kind === "search") {
-      nav("all");
-      qInput.value = arg || "";
-      renderList({ key: h, title: `“${arg}”`, en: "搜索结果", items: search(arg || "") });
-    }
-    else if (kind === "cases") { nav("cases"); renderCases(); }
-    else if (kind === "case") { nav("cases"); renderCase(crateById.get(arg)); }
-    else if (kind === "coll") {
-      const c = meta.collections[arg];
-      const list = skins.filter((s) => s.coll.includes(arg));
-      renderList({ key: h, title: c ? c.name : "收藏品", en: "Collection", items: list, crumb: [["#/", "首页"]] });
-    }
-    else renderHome();
-    view.focus({ preventScroll: true });
-  }
-
-  function search(q) {
-    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!terms.length) return [];
-    return skins.filter((s) => {
-      const hay = `${s.name} ${s.en} ${s.weaponName} ${s.weaponEn} ${s.pattern} ${s.phase}`.toLowerCase();
-      return terms.every((t) => hay.includes(t));
-    });
-  }
-
-  let qTimer;
-  qInput.addEventListener("input", () => {
-    clearTimeout(qTimer);
-    qTimer = setTimeout(() => {
-      const q = qInput.value.trim();
-      if (q) location.hash = "#/search/" + encodeURIComponent(q);
-      else if (location.hash.startsWith("#/search")) location.hash = "#/all";
-    }, 220);
-  });
-
-  // ---------- home ----------
-  function best(list) {
-    return list.slice().sort((a, b) => (rarityRank[b.rarity] - rarityRank[a.rarity]) || (a.phase ? 1 : 0) - (b.phase ? 1 : 0))[0];
-  }
-
-  function renderHome() {
-    currentList = [];
-    const cats = new Map();
+    const catMap = new Map();
     skins.forEach((s) => {
-      if (!cats.has(s.catName)) cats.set(s.catName, new Map());
-      const w = cats.get(s.catName);
-      if (!w.has(s.weapon)) w.set(s.weapon, []);
-      w.get(s.weapon).push(s);
+      if (!catMap.has(s.catName)) catMap.set(s.catName, new Map());
+      const wm = catMap.get(s.catName);
+      if (!wm.has(s.weapon)) wm.set(s.weapon, { id: s.weapon, name: s.weaponName, en: s.weaponEn, cat: s.catName, list: [] });
+      wm.get(s.weapon).list.push(s);
     });
-    const order = [...cats.keys()].sort((a, b) => (CAT_ORDER.indexOf(a) + 99) % 99 - (CAT_ORDER.indexOf(b) + 99) % 99);
-    const latest = crates.filter((c) => c.type === "Case" || /武器箱/.test(c.name)).slice(0, 6);
-
-    let html = `<div class="wrap">`;
-    html += `<div class="head"><h1>按武器找皮肤</h1><span class="n">${skins.length.toLocaleString()} 款皮肤 · ${countWeapons()} 种武器</span></div>`;
-    for (const cat of order) {
-      const weapons = [...cats.get(cat).values()].sort((a, b) => b.length - a.length);
-      const n = weapons.reduce((x, w) => x + w.length, 0);
-      html += `<section class="section"><div class="section-title"><h2>${esc(cat)}</h2><span>${n}</span><a href="#/all/${encodeURIComponent(cat)}">看这类全部 →</a></div><div class="weapons">`;
-      for (const list of weapons) {
-        const b = best(list);
-        html += `<a class="wtile" href="#/w/${encodeURIComponent(b.weapon)}"><div class="pic"><img loading="lazy" alt="" src="${esc(img(b.img, 256))}"></div><div class="cap"><b>${esc(b.weaponName)}</b><small>${list.length}</small></div></a>`;
-      }
-      html += `</div></section>`;
-    }
-    if (latest.length) {
-      html += `<section class="section"><div class="section-title"><h2>最新武器箱</h2><a href="#/cases">全部武器箱 →</a></div><div class="cases">${latest.map(caseTile).join("")}</div></section>`;
-    }
-    html += `</div>`;
-    view.innerHTML = html;
-  }
-  const countWeapons = () => new Set(skins.map((s) => s.weapon)).size;
-
-  // ---------- lists with filters ----------
-  function renderList({ key, title, en, items, crumb, showCats }) {
-    if (filterState.key !== key) { filterState.key = key; filterState.rar.clear(); filterState.col.clear(); filterState.st = false; }
-    const presentRar = meta.rarities.filter((r) => items.some((s) => s.rarity === r.id));
-    const presentCol = hasColors ? COLORS.filter(([id]) => items.some((s) => (s.colors || []).includes(id))) : [];
-
-    view.innerHTML = `<div class="wrap">
-      ${crumb ? `<nav class="crumb">${crumb.map(([h, t]) => (h ? `<a href="${h}">${esc(t)}</a>` : `<span>${esc(t)}</span>`)).join("<span>/</span>")}</nav>` : ""}
-      <div class="head"><div><h1>${esc(title)}</h1>${en ? `<div class="en">${esc(en)}</div>` : ""}</div><span class="n" id="n"></span></div>
-      ${items.length ? `<div class="filters" id="filters">
-        ${showCats ? `<div class="frow"><span class="lab">类别</span>${CAT_ORDER.filter((c) => skins.some((s) => s.catName === c)).map((c) => `<a class="chip" href="#/all/${encodeURIComponent(c)}">${esc(c)}</a>`).join("")}</div>` : ""}
-        <div class="frow"><span class="lab">稀有度</span>${presentRar.map((r) => `<button class="chip" data-rar="${r.id}" aria-pressed="false"><i style="background:${r.color}"></i>${esc(r.name)}</button>`).join("")}</div>
-        ${presentCol.length ? `<div class="frow"><span class="lab">颜色</span>${presentCol.map(([id, nm, hex]) => `<button class="swatch" data-col="${id}" aria-pressed="false" title="${nm}" aria-label="${nm}色" style="background:${hex}"></button>`).join("")}</div>` : ""}
-        <div class="frow"><span class="lab">其他</span>
-          <button class="chip" data-st aria-pressed="false">可 StatTrak™</button>
-          <select class="sel" id="sort" aria-label="排序"><option value="rarity">稀有度从高到低</option><option value="rarity-asc">稀有度从低到高</option><option value="name">按名称</option></select>
-          <button class="clear" id="clear" hidden>清除筛选</button>
-        </div>
-      </div>` : ""}
-      <div class="grid" id="grid"></div>
-    </div>`;
-
-    const grid = $("#grid"), n = $("#n");
-    $("#sort") && ($("#sort").value = filterState.sort);
-    syncPressed();
-
-    function syncPressed() {
-      view.querySelectorAll("[data-rar]").forEach((b) => b.setAttribute("aria-pressed", filterState.rar.has(b.dataset.rar)));
-      view.querySelectorAll("[data-col]").forEach((b) => b.setAttribute("aria-pressed", filterState.col.has(b.dataset.col)));
-      const st = $("[data-st]", view); if (st) st.setAttribute("aria-pressed", filterState.st);
-      const cl = $("#clear"); if (cl) cl.hidden = !(filterState.rar.size || filterState.col.size || filterState.st);
-    }
-
-    function paint() {
-      let list = items.filter((s) =>
-        (!filterState.rar.size || filterState.rar.has(s.rarity)) &&
-        (!filterState.col.size || (s.colors || []).some((c) => filterState.col.has(c))) &&
-        (!filterState.st || s.st));
-      const sort = filterState.sort;
-      list = list.slice().sort((a, b) =>
-        sort === "name" ? a.name.localeCompare(b.name, "zh") :
-        sort === "rarity-asc" ? (rarityRank[a.rarity] - rarityRank[b.rarity]) || a.name.localeCompare(b.name, "zh") :
-        (rarityRank[b.rarity] - rarityRank[a.rarity]) || a.name.localeCompare(b.name, "zh"));
-      currentList = list;
-      n.textContent = list.length === items.length ? `${items.length} 款` : `${list.length} / ${items.length} 款`;
-      grid.innerHTML = list.length ? list.map(card).join("") : `<p class="empty">${items.length ? "没有符合筛选的皮肤，试试清除几个条件。" : "没有找到。可以试试武器名、皮肤名或英文名，比如 “AK 火神” 或 “Doppler”。"}</p>`;
-    }
-
-    if (listAbort) listAbort.abort();
-    listAbort = new AbortController();
-    view.addEventListener("click", (e) => {
-      const r = e.target.closest("[data-rar]"), c = e.target.closest("[data-col]");
-      if (r) toggle(filterState.rar, r.dataset.rar);
-      else if (c) toggle(filterState.col, c.dataset.col);
-      else if (e.target.closest("[data-st]")) filterState.st = !filterState.st;
-      else if (e.target.closest("#clear")) { filterState.rar.clear(); filterState.col.clear(); filterState.st = false; }
-      else return;
-      syncPressed(); paint();
-    }, { signal: listAbort.signal });
-    $("#sort") && $("#sort").addEventListener("change", (e) => { filterState.sort = e.target.value; paint(); });
-    paint();
-  }
-  const toggle = (set, v) => (set.has(v) ? set.delete(v) : set.add(v));
-
-  function card(s) {
-    const badges = s.phase ? `<span class="badge">${esc(s.phase)}</span>` : "";
-    return `<a class="item" href="#/skin/${encodeURIComponent(s.id)}" style="--rc:${rc(s)}">
-      <div class="pic">${s.img ? `<img loading="lazy" alt="${esc(s.name)}" src="${esc(img(s.img, 360))}">` : `<span class="noimg">暂无图片</span>`}${badges ? `<div class="badges">${badges}</div>` : ""}</div>
-      <div class="bar"></div>
-      <div class="txt"><span class="w">${esc(s.weaponName)}</span><span class="p">${esc(shortName(s))}</span></div></a>`;
+    cats = [...catMap.entries()]
+      .sort((a, b) => ((CAT_ORDER.indexOf(a[0]) + 99) % 99) - ((CAT_ORDER.indexOf(b[0]) + 99) % 99))
+      .map(([name, wm]) => {
+        const weapons = [...wm.values()].sort((a, b) => b.list.length - a.list.length);
+        weapons.forEach((w) => { w.list.sort(byRarity); weaponById.set(w.id, w); });
+        return { name, en: CAT_EN[name] || "", weapons, count: weapons.reduce((n, w) => n + w.list.length, 0) };
+      });
+    shell();
+    addEventListener("hashchange", () => route(false));
+    if (wideQuery.addEventListener) wideQuery.addEventListener("change", () => route(true));
+    route(true);
   }
 
-  // ---------- cases ----------
-  function caseTile(c) {
-    return `<a class="case" href="#/case/${encodeURIComponent(c.id)}"><img loading="lazy" alt="" src="${esc(img(c.img, 256))}"><b>${esc(c.name)}</b><small>${esc(c.date || "")} · ${c.items.length} 款</small></a>`;
-  }
+  // ===== page pieces =====
+  function best(list) { return list.slice().sort((a, b) => (rarityRank[b.rarity] - rarityRank[a.rarity]) || (a.phase ? 1 : 0) - (b.phase ? 1 : 0))[0]; }
+  const run = (l, r) => `<div class="bk-run"><span>${l}</span><span>${r}</span></div>`;
+  const folio = (n) => `<div class="bk-folio">— ${n} —</div>`;
+  const photoCell = (s) => `<a class="bk-cell" href="#/skin/${enc(s.id)}" style="--rc:${rc(s)}">
+      <span class="bk-cell-photo">${s.img ? `<img loading="lazy" alt="" src="${esc(img(s.img, 256))}">` : ""}</span>
+      <span class="bk-cell-cap"><i></i><span>${esc(shortName(s))}</span>${s.phase ? `<small>${esc(s.phase)}</small>` : ""}</span></a>`;
 
-  function renderCases() {
-    const groups = [["武器箱", crates.filter((c) => c.type === "Case" || (/武器箱/.test(c.name) && c.type !== "Souvenir"))]];
-    const rest = crates.filter((c) => !groups[0][1].includes(c));
-    if (rest.length) groups.push(["纪念包与其他", rest]);
-    view.innerHTML = `<div class="wrap"><div class="head"><h1>按武器箱找皮肤</h1><span class="n">${crates.length} 个</span></div>
-      ${groups.map(([t, list]) => `<section class="section"><div class="section-title"><h2>${t}</h2><span>${list.length}</span></div><div class="cases">${list.map(caseTile).join("")}</div></section>`).join("")}</div>`;
-  }
-
-  function renderCase(c) {
-    if (!c) return renderCases();
-    const items = c.items.map((id) => byId.get(id)).filter(Boolean);
-    const rare = c.rare.map((id) => byId.get(id)).filter(Boolean);
-    const tiers = meta.rarities.slice().reverse().map((r) => [r, items.filter((s) => s.rarity === r.id)]).filter(([, l]) => l.length);
-    currentList = tiers.flatMap(([, l]) => l).concat(rare);
-    view.innerHTML = `<div class="wrap">
-      <nav class="crumb"><a href="#/cases">武器箱</a></nav>
-      <div class="head"><div><h1>${esc(c.name)}</h1><div class="en">${esc(c.en)}</div></div><span class="n">${esc(c.date || "")}</span></div>
-      ${tiers.map(([r, l]) => `<div class="tier" style="--rc:${r.color}"><i></i>${esc(r.name)}<span>${l.length}</span></div><div class="grid">${l.map(card).join("")}</div>`).join("")}
-      ${rare.length ? `<div class="tier" style="--rc:#e4ae39"><i></i>★ 稀有特殊物品<span>${rare.length}</span></div><div class="grid">${rare.map(card).join("")}</div>` : ""}
-    </div>`;
-  }
-
-
-  // ---------- showcase (展柜) ----------
-  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
-  let current = null;
-
-  function marketName(s, wear) {
-    const n = s.en || "";
-    return wear ? `${n} (${wear})` : n;
-  }
-
-  function listFor(s) {
-    if (currentList.length && currentList.some((x) => x.id === s.id)) return currentList;
-    return skins.filter((x) => x.weapon === s.weapon).sort((a, b) => (rarityRank[b.rarity] - rarityRank[a.rarity]) || a.name.localeCompare(b.name, "zh"));
-  }
-
-  function siblings(s) {
-    const key = s.coll[0];
-    let pool = key ? skins.filter((x) => x.coll.includes(key)) : [];
-    let label = key && meta.collections[key] ? meta.collections[key].name : "";
-    if (pool.length < 2 && s.crates[0]) {
-      const c = crateById.get(s.crates[0]);
-      if (c) { pool = c.items.concat(c.rare).map((id) => byId.get(id)).filter(Boolean); label = c.name; }
-    }
-    const seen = new Set();
-    pool = pool.filter((x) => x.id !== s.id && x.name !== s.name && !seen.has(x.name) && seen.add(x.name));
-    pool.sort((a, b) => rarityRank[b.rarity] - rarityRank[a.rarity]);
-    return [label, pool.slice(0, 12)];
-  }
-
-  // dealer's voice: a few fixed lines picked by the item, so each page reads the same every visit
   function hashOf(str) { let h = 2166136261; for (const c of str) h = Math.imul(h ^ c.codePointAt(0), 16777619); return h >>> 0; }
-  function pick(list, seed) { return list[seed % list.length]; }
+  const pick = (list, seed) => list[seed % list.length];
   function dealerLine(s, avail) {
     const h = hashOf(s.id);
     const rank = rarityRank[s.rarity] ?? 0;
@@ -314,43 +92,129 @@
     return lines.join(" ");
   }
 
-  // ---------- the book (军械图鉴) ----------
-  const ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"];
-  const STAMPS = { 0: "普通", 1: "普通", 2: "限制", 3: "限制", 4: "机密", 5: "绝密", 6: "绝密", 7: "违禁", 8: "违禁" };
-  let flipping = false;
-
-  function pageNo(s) { return skins.indexOf(s) + 1; }
-  function fileCode(s) {
-    const w = s.weapon.replace(/^weapon_(knife_)?/, "").replace(/_/g, "").toUpperCase().slice(0, 6);
-    return `FM-${w}-${String(pageNo(s)).padStart(4, "0")}`;
+  // ===== spreads =====
+  function coverFace() {
+    return `<button class="bk-cover-face" data-open aria-label="翻开图鉴">
+      <span class="bk-cover-in">
+        <span class="bk-cover-top">机密 · 限内部传阅</span>
+        <b>军械图鉴</b>
+        <span class="bk-cover-sub">COUNTER-STRIKE 2 · 饰品档案</span>
+        <span class="bk-cover-stats">收录 ${skins.length.toLocaleString()} 件 · ${weaponById.size} 种武器 · ${crates.length} 个武器箱</span>
+      </span>
+      <span class="bk-cover-open">翻开 ▸</span>
+    </button>`;
   }
 
-  function leftPage(s, ctx) {
-    const { variants, list, idx, r } = ctx;
-    return `
-      <div class="bk-run"><span>${esc(s.catName)} · ${esc(s.weaponName)}</span><span>图版 ${String(idx + 1).padStart(2, "0")}</span></div>
+  function tocSpread() {
+    const left = `${run("卷首", "军械图鉴")}
+      <div class="bk-front">
+        <h2 class="bk-h">卷首说明</h2>
+        <p class="bk-p">本册收录 Counter-Strike 2 全部武器、刀具与手套涂装共 ${skins.length.toLocaleString()} 件，按武器类别分为 ${cats.length} 章；武器箱与收藏品另列于附录。每件展品附图版一幅、档案一页。</p>
+        <h3 class="bk-h3">查阅方法</h3>
+        <ul class="bk-ul"><li>点目录中的章节进入，逐级查到单件展品</li><li>点书角或左右滑动翻页，右侧书签可直接跳章</li><li>知道名字的，直接在下方检索</li></ul>
+        <form class="bk-search" data-search role="search"><label for="bk-q">检索</label><input id="bk-q" name="q" type="search" placeholder="皮肤、武器或英文名，如 AK 火神" autocomplete="off"><button type="submit">查</button></form>
+        <div class="bk-imprint"><b>出版说明</b>数据取自 ByMykel/CSGO-API，图片来自 Steam，每周更新。本册与 Valve 无关，Counter-Strike 及相关素材版权归 Valve Corporation 所有。</div>
+      </div>${folio("i")}`;
+    const rows = cats.map((c, i) => `<a class="bk-toc-row" href="#/c/${enc(c.name)}"><span class="no">第${chapterNo(i)}章</span><span class="t">${esc(c.name)}<small>${c.en}</small></span><span class="dots"></span><span class="n">${c.count}</span></a>`).join("");
+    const right = `${run("目录", "CONTENTS")}
+      <h2 class="bk-h bk-toc-h">目　录</h2>
+      <nav class="bk-toc" aria-label="目录">${rows}
+        <div class="bk-toc-gap"></div>
+        <a class="bk-toc-row" href="#/cases"><span class="no">附录甲</span><span class="t">武器箱<small>CASES</small></span><span class="dots"></span><span class="n">${crates.length}</span></a>
+        <a class="bk-toc-row" href="#/colls"><span class="no">附录乙</span><span class="t">收藏品<small>COLLECTIONS</small></span><span class="dots"></span><span class="n">${Object.keys(meta.collections).length}</span></a>
+      </nav>${folio("ii")}`;
+    return { left, right };
+  }
+
+  function chapterSpread(ci) {
+    const c = cats[ci];
+    const hero = best(c.weapons.flatMap((w) => w.list));
+    const left = `${run(`第${chapterNo(ci)}章`, c.en)}
+      <div class="bk-chapter">
+        <span class="bk-ch-no">第${chapterNo(ci)}章</span>
+        <h2 class="bk-ch-title">${esc(c.name)}</h2>
+        <span class="bk-ch-en">${c.en}</span>
+        <figure class="bk-ch-plate"><span class="tape t1" aria-hidden="true"></span><span class="bk-photo" style="--rc:${rc(hero)}">${hero.img ? `<img alt="" src="${esc(img(hero.img, 512))}">` : ""}</span><figcaption>卷首图　${esc(hero.name)}</figcaption></figure>
+        <p class="bk-ch-meta">本章收录 ${c.weapons.length} 种${esc(c.name)}，共 ${c.count} 件涂装。</p>
+      </div>${folio(`${chapterNo(ci)}·1`)}`;
+    const right = `${run(esc(c.name), "武器索引")}
+      <h2 class="bk-h">武器索引</h2>
+      <nav class="bk-index">${c.weapons.map((w) => { const b = best(w.list); return `<a class="bk-idx-row" href="#/w/${enc(w.id)}"><span class="th" style="--rc:${rc(b)}">${b.img ? `<img loading="lazy" alt="" src="${esc(img(b.img, 128))}">` : ""}</span><span class="t">${esc(w.name)}${w.en && w.en !== w.name ? `<small>${esc(w.en)}</small>` : ""}</span><span class="dots"></span><span class="n">${w.list.length}</span></a>`; }).join("")}</nav>
+      ${folio(`${chapterNo(ci)}·2`)}`;
+    return { left, right };
+  }
+
+  function sheetSpread({ title, sub, list, base, page, runLabel }) {
+    const per = PER_PAGE * 2;
+    const pages = Math.max(1, Math.ceil(list.length / per));
+    const p = Math.min(page, pages - 1);
+    const from = p * per;
+    const a = list.slice(from, from + PER_PAGE), b = list.slice(from + PER_PAGE, from + per);
+    const range = list.length ? `第 ${from + 1}–${Math.min(list.length, from + per)} 件 / 共 ${list.length}` : "无结果";
+    const left = `${run(esc(runLabel || title), "图版索引")}
+      <div class="bk-sheet-head"><h2 class="bk-h">${esc(title)}</h2>${sub ? `<span>${esc(sub)}</span>` : ""}</div>
+      ${list.length ? `<div class="bk-grid">${a.map(photoCell).join("")}</div>` : `<p class="bk-empty">没有查到。可以试试武器名、皮肤名或英文名，比如“AK 火神”或“Doppler”。</p>`}
+      ${folio(p * 2 + 1)}`;
+    const right = `${run(range, pages > 1 ? `${p + 1} / ${pages} 页` : "")}
+      <div class="bk-grid">${b.map(photoCell).join("")}</div>
+      ${!b.length && list.length ? `<p class="bk-end">— 本节完 —</p>` : ""}
+      ${folio(p * 2 + 2)}`;
+    return { left, right, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
+  }
+
+  function listSpread({ title, en, rows, base, page }) {
+    const per = ROWS_PER_PAGE * 2;
+    const pages = Math.max(1, Math.ceil(rows.length / per));
+    const p = Math.min(page, pages - 1);
+    const from = p * per;
+    const a = rows.slice(from, from + ROWS_PER_PAGE), b = rows.slice(from + ROWS_PER_PAGE, from + per);
+    const left = `${run(title, en)}<div class="bk-sheet-head"><h2 class="bk-h">${title}</h2><span>共 ${rows.length}</span></div><nav class="bk-index">${a.join("")}</nav>${folio(`附·${p * 2 + 1}`)}`;
+    const right = `${run(`第 ${from + 1}–${Math.min(rows.length, from + per)} 项`, pages > 1 ? `${p + 1} / ${pages} 页` : "")}<nav class="bk-index">${b.join("")}</nav>${folio(`附·${p * 2 + 2}`)}`;
+    return { left, right, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
+  }
+  const caseRow = (c) => `<a class="bk-idx-row" href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span class="t">${esc(c.name)}<small>${esc(c.date || "")}</small></span><span class="dots"></span><span class="n">${c.items.length}</span></a>`;
+  const collRow = (c, n) => `<a class="bk-idx-row" href="#/coll/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span class="t">${esc(c.name)}</span><span class="dots"></span><span class="n">${n}</span></a>`;
+
+  function siblings(s) {
+    const key = s.coll[0];
+    let pool = key ? skins.filter((x) => x.coll.includes(key)) : [];
+    let label = key && meta.collections[key] ? meta.collections[key].name : "";
+    if (pool.length < 2 && s.crates[0]) {
+      const c = crateById.get(s.crates[0]);
+      if (c) { pool = c.items.concat(c.rare).map((id) => byId.get(id)).filter(Boolean); label = c.name; }
+    }
+    const seen = new Set();
+    pool = pool.filter((x) => x.id !== s.id && x.name !== s.name && !seen.has(x.name) && seen.add(x.name));
+    pool.sort((a, b) => rarityRank[b.rarity] - rarityRank[a.rarity]);
+    return [label, pool.slice(0, 8)];
+  }
+  const fileCode = (s) => `FM-${s.weapon.replace(/^weapon_(knife_)?/, "").replace(/_/g, "").toUpperCase().slice(0, 6)}-${String(skins.indexOf(s) + 1).padStart(4, "0")}`;
+
+  function itemSpread(s, list) {
+    const idx = list.indexOf(s);
+    const variants = skins.filter((x) => x.name === s.name);
+    const cratesOf = s.crates.map((id) => crateById.get(id)).filter(Boolean);
+    const colls = s.coll.map((id) => meta.collections[id]).filter(Boolean);
+    const min = s.min ?? 0, max = s.max ?? 1;
+    const avail = WEARS.map((w) => w[3] > min && w[2] < max);
+    const r = rarityById[s.rarity] || { name: "", color: "#6b6f5e" };
+    const rank = (rarityRank[s.rarity] ?? 0) + 1;
+    const [sibLabel, sibs] = siblings(s);
+    const n = skins.indexOf(s) + 1;
+    const left = `${run(`${esc(s.catName)} · ${esc(s.weaponName)}`, `图版 ${pad2(idx + 1)}`)}
       <figure class="bk-plate">
         <span class="tape t1" aria-hidden="true"></span><span class="tape t2" aria-hidden="true"></span>
-        <div class="bk-photo" style="--rc:${r.color}">
-          ${s.img ? `<img alt="${esc(s.name)}" src="${esc(img(s.img, 512))}">` : `<span class="bk-noimg">图版缺失</span>`}
-        </div>
-        <figcaption><b>图 ${String(idx + 1).padStart(2, "0")}</b> ${esc(s.name)}${s.phase ? `（${esc(s.phase)}）` : ""}</figcaption>
+        <div class="bk-photo" style="--rc:${r.color}">${s.img ? `<img alt="${esc(s.name)}" src="${esc(img(s.img, 512))}">` : `<span class="bk-noimg">图版缺失</span>`}</div>
+        <figcaption><b>图 ${pad2(idx + 1)}</b> ${esc(s.name)}${s.phase ? `（${esc(s.phase)}）` : ""}</figcaption>
       </figure>
-      ${variants.length > 1 ? `<div class="bk-strip" aria-label="同款其他版本">${variants.map((v) => `<button data-go="${esc(v.id)}" aria-current="${v.id === s.id}"><img alt="" loading="lazy" src="${esc(img(v.img, 128))}"><span>${esc(v.phase || "默认")}</span></button>`).join("")}</div>` : ""}
-      <div class="bk-note"><span class="bk-note-h">军需官备注</span><p>${esc(dealerLine(s, ctx.avail))}</p></div>
-      <div class="bk-folio">— ${pageNo(s) * 2} —</div>`;
-  }
-
-  function rightPage(s, ctx) {
-    const { cratesOf, colls, min, max, avail, r, sibs, sibLabel, rank } = ctx;
-    const stamp = STAMPS[rank] || "机密";
-    return `
-      <div class="bk-run"><span>${fileCode(s)}</span><span>${esc(r.name)}</span></div>
-      <div class="bk-stamp" style="--sc:${r.color}" aria-hidden="true">${stamp}</div>
+      ${variants.length > 1 ? `<div class="bk-strip" aria-label="同款其他版本">${variants.map((v) => `<a href="#/skin/${enc(v.id)}" data-replace aria-current="${v.id === s.id}"><img alt="" loading="lazy" src="${esc(img(v.img, 128))}"><span>${esc(v.phase || "默认")}</span></a>`).join("")}</div>` : ""}
+      <div class="bk-note"><span class="bk-note-h">军需官备注</span><p>${esc(dealerLine(s, avail))}</p></div>
+      ${folio(n * 2)}`;
+    const right = `${run(fileCode(s), esc(r.name))}
+      <div class="bk-stamp" aria-hidden="true">${STAMPS[rank] || "机密"}</div>
       <div class="bk-kicker">${esc(s.weaponName)}${s.weaponEn && s.weaponEn !== s.weaponName ? ` ／ ${esc(s.weaponEn)}` : ""}</div>
-      <h2 id="sheet-title">${esc(shortName(s))}</h2>
+      <h2 class="bk-item-h">${esc(shortName(s))}</h2>
       <div class="bk-en">${esc((s.en.split("|")[1] || s.en).trim())}</div>
-
       <table class="bk-form">
         <tr><th>等级</th><td><span class="bk-rank" style="--rc:${r.color}">${"■".repeat(rank)}${"□".repeat(Math.max(0, 7 - rank))}</span> ${esc(r.name)}</td></tr>
         <tr><th>磨损区间</th><td>${min.toFixed(2)} — ${max.toFixed(2)}</td></tr>
@@ -358,156 +222,269 @@
         <tr><th>附加</th><td>${[s.st && "StatTrak™", s.sv && "纪念品", s.phase].filter(Boolean).map(esc).join("　") || "—"}</td></tr>
         ${s.pattern ? `<tr><th>涂装</th><td>${esc(s.pattern)}</td></tr>` : ""}
       </table>
-
       ${s.desc ? `<p class="bk-desc">${esc(s.desc)}</p>` : ""}
       ${s.lore ? `<p class="bk-lore">“${esc(s.lore)}”</p>` : ""}
-
-      <div class="bk-sec"><h3>来源</h3><p class="bk-src">
-        ${colls.map((c) => `<a href="#/coll/${encodeURIComponent(c.id)}">${esc(c.name)}</a>`).join("、")}${colls.length && cratesOf.length ? "；" : ""}${cratesOf.slice(0, 5).map((c) => `<a href="#/case/${encodeURIComponent(c.id)}">${esc(c.name)}</a>`).join("、")}${cratesOf.length > 5 ? ` 等 ${cratesOf.length} 处` : ""}${!colls.length && !cratesOf.length ? "不详" : ""}
-      </p></div>
-
-      ${sibs.length ? `<div class="bk-sec"><h3>参见 · ${esc(sibLabel)}</h3><div class="bk-see">${sibs.slice(0, 8).map((x) => `<button data-go="${esc(x.id)}" style="--rc:${rc(x)}"><img alt="" loading="lazy" src="${esc(img(x.img, 128))}"><span>${esc(shortName(x))}</span></button>`).join("")}</div></div>` : ""}
-
-      ${s.en ? `<div class="bk-links">${WEARS.filter((w, i) => avail[i]).map((w) => `<a target="_blank" rel="noopener" href="https://steamcommunity.com/market/listings/730/${encodeURIComponent(marketName(s, w[1]))}">Steam·${w[0]}</a>`).join("")}<a target="_blank" rel="noopener" href="https://buff.163.com/market/csgo#game=csgo&page_num=1&search=${encodeURIComponent(s.name.replace("（★）", ""))}">BUFF</a></div>` : ""}
-      <div class="bk-folio">— ${pageNo(s) * 2 + 1} —</div>`;
+      <div class="bk-sec"><h3>来源</h3><p class="bk-src">${colls.map((c) => `<a href="#/coll/${enc(c.id)}">${esc(c.name)}</a>`).join("、")}${colls.length && cratesOf.length ? "；" : ""}${cratesOf.slice(0, 5).map((c) => `<a href="#/case/${enc(c.id)}">${esc(c.name)}</a>`).join("、")}${cratesOf.length > 5 ? ` 等 ${cratesOf.length} 处` : ""}${!colls.length && !cratesOf.length ? "不详" : ""}</p></div>
+      ${sibs.length ? `<div class="bk-sec"><h3>参见 · ${esc(sibLabel)}</h3><div class="bk-strip">${sibs.map((x) => `<a href="#/skin/${enc(x.id)}" style="--rc:${rc(x)}" class="see"><img alt="" loading="lazy" src="${esc(img(x.img, 128))}"><span>${esc(shortName(x))}</span></a>`).join("")}</div></div>` : ""}
+      ${s.en ? `<div class="bk-links">${WEARS.filter((w, i) => avail[i]).map((w) => `<a target="_blank" rel="noopener" href="https://steamcommunity.com/market/listings/730/${enc(`${s.en} (${w[1]})`)}">Steam·${w[0]}</a>`).join("")}<a target="_blank" rel="noopener" href="https://buff.163.com/market/csgo#game=csgo&page_num=1&search=${enc(s.name.replace("（★）", ""))}">BUFF</a></div>` : ""}
+      ${folio(n * 2 + 1)}`;
+    return { left, right, idx,
+      prev: idx > 0 ? `#/skin/${enc(list[idx - 1].id)}` : null,
+      next: idx >= 0 && idx < list.length - 1 ? `#/skin/${enc(list[idx + 1].id)}` : null,
+      pos: `${idx + 1} / ${list.length}` };
   }
 
-  function context(s) {
-    const list = listFor(s);
-    const min = s.min ?? 0, max = s.max ?? 1;
-    const r = rarityById[s.rarity] || { name: "", color: "#6b6f5e" };
-    const [sibLabel, sibs] = siblings(s);
-    return {
-      list, idx: list.findIndex((x) => x.id === s.id),
-      variants: skins.filter((x) => x.name === s.name),
-      cratesOf: s.crates.map((id) => crateById.get(id)).filter(Boolean),
-      colls: s.coll.map((id) => meta.collections[id]).filter(Boolean),
-      min, max, avail: WEARS.map((w) => w[3] > min && w[2] < max), r,
-      rank: (rarityRank[s.rarity] ?? 0) + 1, sibLabel, sibs,
-    };
+  function search(q) {
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return [];
+    return skins.filter((s) => {
+      const hay = `${s.name} ${s.en} ${s.weaponName} ${s.weaponEn} ${s.pattern} ${s.phase}`.toLowerCase();
+      return terms.every((t) => hay.includes(t));
+    }).sort(byRarity);
   }
 
-  const wide = () => matchMedia("(min-width: 1000px) and (min-aspect-ratio: 1/1)").matches;
+  // ===== routing =====
+  // Each view carries an `order` so the book can tell whether to turn forward or back.
+  let fromList = null;   // { list, crumbs, key } of the last index sheet, used to page through items
+  let state = null;
 
-  function openSheet(s, dir) {
-    const firstOpen = sheet.hidden;
-    const prevLeft = $(".bk-left", sheetCard), prevRight = $(".bk-right", sheetCard);
-    const oldL = prevLeft ? prevLeft.innerHTML : "", oldR = prevRight ? prevRight.innerHTML : "";
-    current = s;
-    const ctx = context(s);
-    const { list, idx } = ctx;
+  function sheetView(order, tab, list, base, page, title, sub, runLabel, crumbs) {
+    const sp = sheetSpread({ title, sub, list, base, page, runLabel });
+    const here = `${base}/${sp.page}`;
+    return { kind: "sheet", order: [...order, sp.page], tab, list, crumbs, back: here, key: base, ...sp };
+  }
 
-    sheetCard.innerHTML = `
-      <div class="bk-desk">
-        <div class="bk-top">
-          <button class="bk-btn" data-close aria-label="合上书，返回列表">✕ 合上</button>
-          <span class="bk-title">CS 饰品馆 · 军械图鉴</span>
-          <span class="bk-pos">${idx + 1} / ${list.length}</span>
-        </div>
-        <div class="bk-book">
-          <div class="bk-spread">
-            <section class="bk-page bk-left" aria-label="图版">${leftPage(s, ctx)}</section>
-            <section class="bk-page bk-right" aria-label="档案">${rightPage(s, ctx)}</section>
-          </div>
-          <button class="bk-corner prev" data-step="-1" aria-label="上一页"${idx <= 0 ? " disabled" : ""}><span>‹</span></button>
-          <button class="bk-corner next" data-step="1" aria-label="下一页"${idx >= list.length - 1 ? " disabled" : ""}><span>›</span></button>
-        </div>
-        <p class="bk-hint">左右滑动或点书角翻页</p>
-      </div>`;
+  function resolve(hash) {
+    const parts = hash.replace(/^#\/?/, "").split("/").map((x) => { try { return decodeURIComponent(x); } catch (e) { return x; } });
+    const [kind, arg, arg2] = parts;
+    const page = (v) => Math.max(0, parseInt(v || "0", 10) || 0);
+    const chapterCrumb = (ci) => [cats[ci].name, `#/c/${enc(cats[ci].name)}`];
 
-    sheet.hidden = false;
-    document.body.style.overflow = "hidden";
-    $(".bk-right", sheetCard).scrollTop = 0;
-    bindStage();
-    if (firstOpen) {
-      if (!reduceMotion) openCover();
-      $("[data-close]", sheetCard).focus({ preventScroll: true });
-    } else if (dir && !reduceMotion) {
-      flip(dir, oldL, oldR);
+    if (!kind) return { kind: "cover", order: [0] };
+    if (kind === "toc" || kind === "all") return { kind: "toc", order: [1], crumbs: [], ...tocSpread() };
+    if (kind === "c") {
+      const ci = cats.findIndex((c) => c.name === arg);
+      if (ci < 0) return resolve("#/toc");
+      return { kind: "chapter", order: [2, ci], tab: ci, crumbs: [[cats[ci].name, null]], ...chapterSpread(ci) };
     }
+    if (kind === "w") {
+      const w = weaponById.get(arg);
+      if (!w) return resolve("#/toc");
+      const ci = cats.findIndex((c) => c.name === w.cat);
+      return sheetView([3, ci, w.id], ci, w.list, `#/w/${enc(w.id)}`, page(arg2), w.name, `${w.list.length} 件`, `${cats[ci].name} · ${w.name}`, [chapterCrumb(ci), [w.name, null]]);
+    }
+    if (kind === "search") {
+      const q = arg || "";
+      const list = search(q);
+      return sheetView([3, 99, q], null, list, `#/search/${enc(q)}`, page(arg2), `检索：${q}`, `${list.length} 件`, "检索结果", [[`检索：${q}`, null]]);
+    }
+    if (kind === "cases") {
+      const sp = listSpread({ title: "附录甲 · 武器箱", en: "CASES", rows: crates.map(caseRow), base: "#/cases", page: page(arg) });
+      return { kind: "list", order: [2, 90, sp.page], tab: "cases", crumbs: [["附录甲 · 武器箱", null]], ...sp };
+    }
+    if (kind === "colls") {
+      const counts = {};
+      skins.forEach((s) => s.coll.forEach((c) => { counts[c] = (counts[c] || 0) + 1; }));
+      const rows = Object.values(meta.collections).sort((a, b) => a.name.localeCompare(b.name, "zh")).map((c) => collRow(c, counts[c.id] || 0));
+      const sp = listSpread({ title: "附录乙 · 收藏品", en: "COLLECTIONS", rows, base: "#/colls", page: page(arg) });
+      return { kind: "list", order: [2, 91, sp.page], tab: "colls", crumbs: [["附录乙 · 收藏品", null]], ...sp };
+    }
+    if (kind === "case") {
+      const c = crateById.get(arg);
+      if (!c) return resolve("#/cases");
+      const items = c.items.map((id) => byId.get(id)).filter(Boolean).sort(byRarity);
+      const rare = c.rare.map((id) => byId.get(id)).filter(Boolean).sort(byRarity);
+      return sheetView([3, 90, c.id], "cases", items.concat(rare), `#/case/${enc(c.id)}`, page(arg2), c.name, `${c.date || ""} · ${items.length} 件${rare.length ? ` + ★ ${rare.length}` : ""}`, c.name, [["武器箱", "#/cases"], [c.name, null]]);
+    }
+    if (kind === "coll") {
+      const c = meta.collections[arg];
+      if (!c) return resolve("#/colls");
+      const list = skins.filter((s) => s.coll.includes(arg)).sort(byRarity);
+      return sheetView([3, 91, arg], "colls", list, `#/coll/${enc(arg)}`, page(arg2), c.name, `${list.length} 件`, c.name, [["收藏品", "#/colls"], [c.name, null]]);
+    }
+    if (kind === "skin") {
+      const s = byId.get(arg);
+      if (!s) return resolve("#/toc");
+      const ci = cats.findIndex((c) => c.name === s.catName);
+      let src = fromList && fromList.list.includes(s) ? fromList : null;
+      if (!src) {
+        const w = weaponById.get(s.weapon);
+        src = { list: w.list, key: `#/w/${enc(w.id)}`, crumbs: [chapterCrumb(ci), [w.name, `#/w/${enc(w.id)}/0`]] };
+      }
+      const sp = itemSpread(s, src.list);
+      return { kind: "skin", order: [4, src.key, sp.idx], tab: ci, crumbs: [...src.crumbs, [shortName(s), null]], ...sp };
+    }
+    return resolve("#/toc");
   }
 
-  // a page leaf turns over: front is the old page, back is the new one
-  function flip(dir, oldL, oldR) {
-    const book = $(".bk-book", sheetCard), spread = $(".bk-spread", sheetCard);
-    const L = $(".bk-left", sheetCard), R = $(".bk-right", sheetCard);
-    if (!wide()) {
-      spread.classList.add(dir > 0 ? "slide-f" : "slide-b");
+  function compareOrder(a, b) {
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const x = a[i], y = b[i];
+      if (x === y) continue;
+      if (x === undefined) return -1;
+      if (y === undefined) return 1;
+      if (typeof x === "number" && typeof y === "number") return x < y ? -1 : 1;
+      return 1; // a different section at the same depth: turn forward
+    }
+    return 0;
+  }
+
+  function route(instant, forcedDir) {
+    const next = resolve(location.hash || "#/");
+    const prev = state;
+    if (next.kind === "sheet") {
+      // remember where the reader came from, with the last crumb pointing back to this page of the sheet
+      fromList = { list: next.list, key: next.key, crumbs: next.crumbs.map(([t, h], i, arr) => [t, i === arr.length - 1 ? next.back : h]) };
+    }
+    let dir = 0;
+    if (!instant && prev) dir = forcedDir ?? (compareOrder(next.order, prev.order) || 0);
+    state = next;
+    paint(prev, next, dir);
+  }
+
+  // ===== rendering =====
+  let flipping = false;
+
+  function shell() {
+    app.innerHTML = `
+      <div class="bk-desk">
+        <header class="bk-top">
+          <nav class="bk-crumbs" aria-label="位置"></nav>
+          <span class="bk-pos"></span>
+          <form class="bk-qtop" data-search role="search"><input id="bk-qtop" name="q" type="search" placeholder="检索" aria-label="检索图鉴" autocomplete="off"></form>
+        </header>
+        <div class="bk-stage">
+          <div class="bk-book">
+            <div class="bk-spread">
+              <section class="bk-page bk-left"></section>
+              <section class="bk-page bk-right"></section>
+            </div>
+            <nav class="bk-tabs" aria-label="书签"></nav>
+            <a class="bk-corner prev" role="button" aria-label="上一页"><span>‹</span></a>
+            <a class="bk-corner next" role="button" aria-label="下一页"><span>›</span></a>
+          </div>
+        </div>
+      </div>`;
+    $(".bk-tabs", app).innerHTML = cats.map((c, i) => `<a href="#/c/${enc(c.name)}" data-tab="${i}">${esc(c.name)}</a>`).join("")
+      + `<a href="#/cases" data-tab="cases">武器箱</a><a href="#/colls" data-tab="colls">收藏品</a>`;
+
+    app.addEventListener("submit", (e) => {
+      const f = e.target.closest("[data-search]");
+      if (!f) return;
+      e.preventDefault();
+      const q = f.q.value.trim();
+      if (q) { location.hash = "#/search/" + enc(q); f.q.blur(); }
+    });
+    app.addEventListener("click", (e) => {
+      if (e.target.closest("[data-open]")) { location.hash = "#/toc"; return; }
+      const a = e.target.closest("a[data-replace]");
+      if (a) { e.preventDefault(); history.replaceState(null, "", a.getAttribute("href")); route(false, 0); return; }
+      const c = e.target.closest(".bk-corner");
+      if (c) { e.preventDefault(); turn(c.classList.contains("next") ? 1 : -1); }
+    });
+    addEventListener("keydown", (e) => {
+      if (e.target.closest && e.target.closest("input")) return;
+      if (e.key === "ArrowRight") turn(1);
+      else if (e.key === "ArrowLeft") turn(-1);
+      else if (e.key === "Escape" && state) {
+        if (state.kind === "toc") { location.hash = "#/"; return; }
+        const up = [...(state.crumbs || [])].reverse().find(([, h]) => h);
+        location.hash = up ? up[1] : "#/toc";
+      }
+    });
+    bindSwipe($(".bk-book", app));
+  }
+
+  function turn(d) {
+    if (!state || flipping) return;
+    if (state.kind === "cover") { if (d > 0) location.hash = "#/toc"; return; }
+    const h = d > 0 ? state.next : state.prev;
+    if (!h) return;
+    history.replaceState(null, "", h);
+    route(false, d);
+  }
+
+  function bindSwipe(el) {
+    let sx = 0, sy = 0, t0 = 0, down = false, swiped = false;
+    el.addEventListener("pointerdown", (e) => { if (e.target.closest("input, .bk-tabs")) return; down = true; swiped = false; sx = e.clientX; sy = e.clientY; t0 = Date.now(); });
+    el.addEventListener("pointerup", (e) => {
+      if (!down) return; down = false;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - t0 < 600) { swiped = true; turn(dx < 0 ? 1 : -1); }
+    });
+    el.addEventListener("pointercancel", () => { down = false; });
+    el.addEventListener("click", (e) => { if (swiped) { e.preventDefault(); e.stopPropagation(); swiped = false; } }, true);
+  }
+
+  function paint(prev, next, dir) {
+    const book = $(".bk-book", app), L = $(".bk-left", app), R = $(".bk-right", app);
+    const wide = wideQuery.matches;
+    const oldL = L.innerHTML, oldR = R.innerHTML;
+    $(".bk-leaf", book)?.remove();
+    flipping = false;
+
+    // top bar: path back up the book
+    const crumbs = [["目录", next.kind === "toc" ? null : "#/toc"], ...(next.crumbs || [])];
+    $(".bk-crumbs", app).innerHTML = next.kind === "cover"
+      ? `<span class="bk-brand">CS 饰品馆</span>`
+      : `<a class="bk-brand" href="#/">封面</a>` + crumbs.map(([t, h]) => `<span class="sep">›</span>` + (h ? `<a href="${h}">${esc(t)}</a>` : `<span aria-current="page">${esc(t)}</span>`)).join("");
+    $(".bk-pos", app).textContent = next.pos || "";
+    app.dataset.view = next.kind;
+    app.querySelectorAll("[data-tab]").forEach((t) => t.setAttribute("aria-current", String(String(t.dataset.tab) === String(next.tab))));
+
+    const cp = $(".bk-corner.prev", app), cn = $(".bk-corner.next", app);
+    const prevH = next.kind === "toc" ? "#/" : next.prev, nextH = next.kind === "cover" ? "#/toc" : next.next;
+    cp.toggleAttribute("hidden", !prevH); cn.toggleAttribute("hidden", !nextH);
+    if (next.kind === "toc") { next.prev = "#/"; }
+
+    if (next.kind === "cover") {
+      book.classList.add("closed");
+      L.innerHTML = ""; R.innerHTML = coverFace();
+      if (prev && !reduceMotion) { book.classList.remove("closing"); void book.offsetWidth; book.classList.add("closing"); }
       return;
     }
+    book.classList.remove("closed", "closing");
+    L.innerHTML = next.left; R.innerHTML = next.right;
+    L.scrollTop = 0; R.scrollTop = 0; $(".bk-spread", app).scrollTop = 0;
+
+    if (prev && prev.kind === "cover") { if (!reduceMotion) openCover(book); return; }
+    if (!dir || reduceMotion) return;
+    if (!wide) {
+      const sp = $(".bk-spread", app);
+      sp.classList.remove("slide-f", "slide-b"); void sp.offsetWidth;
+      sp.classList.add(dir > 0 ? "slide-f" : "slide-b");
+      return;
+    }
+    flip(book, dir, oldL, oldR, L, R);
+  }
+
+  // A leaf turns over: its front is the old page and its back the new one.
+  // The page it lands on keeps the old content until the leaf has landed.
+  function flip(book, dir, oldL, oldR, L, R) {
     flipping = true;
     const leaf = document.createElement("div");
     leaf.className = "bk-leaf " + (dir > 0 ? "fwd" : "back");
     leaf.innerHTML = dir > 0
       ? `<div class="face front bk-page bk-right">${oldR}</div><div class="face backside bk-page bk-left">${L.innerHTML}</div>`
       : `<div class="face front bk-page bk-left">${oldL}</div><div class="face backside bk-page bk-right">${R.innerHTML}</div>`;
-    const under = dir > 0 ? L : R;          // the page the leaf lands on stays hidden until it lands
-    const keep = dir > 0 ? oldL : oldR;     // and shows the old content meanwhile
+    const under = dir > 0 ? L : R;
     const fresh = under.innerHTML;
-    under.innerHTML = keep;
+    under.innerHTML = dir > 0 ? oldL : oldR;
     book.appendChild(leaf);
-    leaf.addEventListener("animationend", () => { under.innerHTML = fresh; leaf.remove(); flipping = false; }, { once: true });
+    const done = () => { if (!leaf.isConnected) return; under.innerHTML = fresh; leaf.remove(); flipping = false; };
+    leaf.addEventListener("animationend", done, { once: true });
+    setTimeout(done, 1200);
   }
 
-  function openCover() {
-    const book = $(".bk-book", sheetCard);
-    if (!wide()) { book.classList.add("rise"); return; }
+  function openCover(book) {
+    if (!wideQuery.matches) { book.classList.remove("rise"); void book.offsetWidth; book.classList.add("rise"); return; }
     const cover = document.createElement("div");
-    cover.className = "bk-cover";
-    cover.innerHTML = `<div class="face front"><div class="bk-cover-in"><span class="bk-cover-top">机密 · 限内部传阅</span><b>军械图鉴</b><span class="bk-cover-sub">COUNTER-STRIKE 2 · 饰品档案</span><span class="bk-cover-no">卷 ${ROMAN[Math.min(9, (rarityRank[current.rarity] ?? 0) + 1)] || "I"}</span></div></div><div class="face backside"></div>`;
+    cover.className = "bk-cover-leaf";
+    cover.innerHTML = `<div class="face front">${coverFace()}</div><div class="face backside"></div>`;
     book.appendChild(cover);
     cover.addEventListener("animationend", () => cover.remove(), { once: true });
+    setTimeout(() => cover.remove(), 2000);
   }
-
-  function step(d) {
-    if (!current || flipping) return;
-    const list = listFor(current);
-    const i = list.findIndex((x) => x.id === current.id) + d;
-    if (i < 0 || i >= list.length) return;
-    go(list[i], d);
-  }
-  function go(s, dir) {
-    history.replaceState(null, "", "#/skin/" + encodeURIComponent(s.id));
-    openSheet(s, dir || 0);
-  }
-
-  let dustStop = null;
-  function bindStage() {
-    const book = $(".bk-book", sheetCard);
-    if (!book) return;
-    let sx = 0, sy = 0, t0 = 0, down = false;
-    book.addEventListener("pointerdown", (e) => { if (e.target.closest("button, a")) return; down = true; sx = e.clientX; sy = e.clientY; t0 = Date.now(); });
-    book.addEventListener("pointerup", (e) => {
-      if (!down) return; down = false;
-      const dx = e.clientX - sx, dy = e.clientY - sy;
-      if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - t0 < 600) step(dx < 0 ? 1 : -1);
-    });
-    book.addEventListener("pointercancel", () => { down = false; });
-  }
-
-  function closeSheet(fromRoute) {
-    if (sheet.hidden) return;
-    sheet.hidden = true;
-    current = null;
-    flipping = false;
-    document.body.style.overflow = "";
-    if (!fromRoute) location.hash = lastListHash;
-  }
-
-  sheet.addEventListener("click", (e) => {
-    const g = e.target.closest("[data-go]");
-    if (g) { go(byId.get(g.dataset.go), 1); return; }
-    const st = e.target.closest("[data-step]");
-    if (st) { step(+st.dataset.step); return; }
-    if (e.target.closest("[data-close]")) closeSheet();
-    else if (e.target.closest(".bk-src a")) { sheet.hidden = true; current = null; document.body.style.overflow = ""; }
-  });
-  addEventListener("keydown", (e) => {
-    if (sheet.hidden) return;
-    if (e.key === "Escape") closeSheet();
-    else if (e.key === "ArrowRight") step(1);
-    else if (e.key === "ArrowLeft") step(-1);
-  });
 
   boot();
 })();

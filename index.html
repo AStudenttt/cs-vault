@@ -3,36 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#161813">
 <title>CS 饰品馆</title>
 <meta name="description" content="Counter-Strike 2 全部武器、刀具与手套皮肤图鉴，按武器、武器箱、稀有度和颜色快速查找。">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@500;700;900&family=Saira+Semi+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Black+Ops+One&family=Special+Elite&display=swap">
-<link rel="stylesheet" href="assets/style.css?v=4">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Special+Elite&display=swap">
+<link rel="stylesheet" href="assets/style.css?v=5">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 </head>
 <body>
-<header class="top">
-  <div class="top-inner">
-    <a class="brand" href="#/">CS 饰品馆</a>
-    <nav class="nav" aria-label="主导航">
-      <a href="#/" data-nav="home">武器</a>
-      <a href="#/cases" data-nav="cases">武器箱</a>
-      <a href="#/all" data-nav="all">全部</a>
-    </nav>
-    <label class="search">
-      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M13 13l4.5 4.5"/></svg>
-      <input id="q" type="search" placeholder="搜皮肤、武器或英文名" autocomplete="off" aria-label="搜索">
-    </label>
-  </div>
-</header>
-<main id="view" tabindex="-1"><p class="loading">正在载入饰品数据…</p></main>
-<div id="sheet" class="vitrine" hidden>
-  <article class="vt" role="dialog" aria-modal="true" aria-labelledby="sheet-title"></article>
-</div>
-<footer class="foot">
-  <p>数据来自 <a href="https://github.com/ByMykel/CSGO-API" target="_blank" rel="noopener">ByMykel/CSGO-API</a>，图片来自 Steam。本站与 Valve 无关，Counter-Strike 及相关素材版权归 Valve 所有。</p>
-</footer>
-<script src="assets/app.js?v=4"></script>
+<div id="app" class="bk-app"><p class="bk-fail">正在取出图鉴…</p></div>
+<script src="assets/app.js?v=5"></script>
 </body>
 </html>
