@@ -1,0 +1,22 @@
+{
+ "name": "CS 饰品馆 · 军械图鉴",
+ "short_name": "军械图鉴",
+ "start_url": "./",
+ "scope": "./",
+ "display": "standalone",
+ "orientation": "any",
+ "background_color": "#161813",
+ "theme_color": "#161813",
+ "icons": [
+  {
+   "src": "assets/touch-icon.png",
+   "sizes": "180x180",
+   "type": "image/png"
+  },
+  {
+   "src": "assets/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png"
+  }
+ ]
+}

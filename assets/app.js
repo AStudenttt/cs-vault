@@ -6,6 +6,14 @@
   const app = $("#app");
   const CAT_ORDER = ["匕首", "手套", "步枪", "手枪", "微型冲锋枪", "重型武器", "装备"];
   const CAT_EN = { "匕首": "KNIVES", "手套": "GLOVES", "步枪": "RIFLES", "手枪": "PISTOLS", "微型冲锋枪": "SMGS", "重型武器": "HEAVY", "装备": "EQUIPMENT" };
+  // colour buckets computed from each skin's image at build time (scripts/build_data.py)
+  const COLORS = [
+    ["red", "红", "#c8382f"], ["orange", "橙", "#e07f2a"], ["yellow", "黄", "#e2bb36"], ["green", "绿", "#4f9a4f"],
+    ["cyan", "青", "#2ea9a3"], ["blue", "蓝", "#3a6fcf"], ["purple", "紫", "#8455c9"], ["pink", "粉", "#de76ad"],
+    ["brown", "棕", "#7e5532"], ["black", "黑", "#1c1f22"], ["gray", "灰", "#8a9096"], ["white", "白", "#eceee9"],
+  ];
+  const colorById = Object.fromEntries(COLORS.map((c) => [c[0], c]));
+  let hasColors = false;
   const TAB_SHORT = { "微型冲锋枪": "冲锋枪", "重型武器": "重武器" };
   const CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
   const WEARS = [
@@ -45,6 +53,7 @@
     }
     meta.rarities.forEach((r, i) => { rarityRank[r.id] = i; rarityById[r.id] = r; });
     skins.forEach((s) => byId.set(s.id, s));
+    hasColors = skins.some((s) => s.colors && s.colors.length);
     crates.forEach((c) => crateById.set(c.id, c));
     const catMap = new Map();
     skins.forEach((s) => {
@@ -93,6 +102,8 @@
     return lines.join(" ");
   }
 
+  const swatch = (id, href, on, attrs = "") => { const c = colorById[id]; return c ? `<a class="bk-sw${on ? " on" : ""}" href="${href}" style="--sw:${c[2]}" title="${c[1]}" aria-label="${c[1]}色"${on ? ' aria-current="true"' : ""} ${attrs}><span>${c[1]}</span></a>` : ""; };
+
   // ===== spreads =====
   function coverFace() {
     return `<button class="bk-cover-face" data-open aria-label="翻开图鉴">
@@ -114,6 +125,7 @@
         <h3 class="bk-h3">查阅方法</h3>
         <ul class="bk-ul"><li>点目录中的章节进入，逐级查到单件展品</li><li>点书角或左右滑动翻页，右侧书签可直接跳章</li><li>知道名字的，直接在下方检索</li></ul>
         <form class="bk-search" data-search role="search"><label for="bk-q">检索</label><input id="bk-q" name="q" type="search" placeholder="皮肤、武器或英文名，如 AK 火神" autocomplete="off"><button type="submit">查</button></form>
+        ${hasColors ? `<div class="bk-colors"><span class="bk-colors-h">按颜色检索</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/color/${c[0]}/all/0`, false)).join("")}</div><p class="bk-colors-tip">先选主色，结果页里可再加一色或限定类别。</p></div>` : ""}
         <div class="bk-imprint"><b>出版说明</b>数据取自 ByMykel/CSGO-API，图片来自 Steam，每周更新。本册与 Valve 无关，Counter-Strike 及相关素材版权归 Valve Corporation 所有。</div>
       </div>${folio("i")}`;
     const rows = cats.map((c, i) => `<a class="bk-toc-row" href="#/c/${enc(c.name)}"><span class="no">第${chapterNo(i)}章</span><span class="t">${esc(c.name)}<small>${c.en}</small></span><span class="dots"></span><span class="n">${c.count}</span></a>`).join("");
@@ -145,7 +157,7 @@
     return { left, right };
   }
 
-  function sheetSpread({ title, sub, list, base, page, runLabel }) {
+  function sheetSpread({ title, sub, list, base, page, runLabel, extra }) {
     const per = PER_PAGE * 2;
     const pages = Math.max(1, Math.ceil(list.length / per));
     const p = Math.min(page, pages - 1);
@@ -154,6 +166,7 @@
     const range = list.length ? `第 ${from + 1}–${Math.min(list.length, from + per)} 件 / 共 ${list.length}` : "无结果";
     const left = `${run(esc(runLabel || title), "图版索引")}
       <div class="bk-sheet-head"><h2 class="bk-h">${esc(title)}</h2>${sub ? `<span>${esc(sub)}</span>` : ""}</div>
+      ${extra || ""}
       ${list.length ? `<div class="bk-grid">${a.map(photoCell).join("")}</div>` : `<p class="bk-empty">没有查到。可以试试武器名、皮肤名或英文名，比如“AK 火神”或“Doppler”。</p>`}
       ${folio(p * 2 + 1)}`;
     const right = `${run(range, pages > 1 ? `${p + 1} / ${pages} 页` : "")}
@@ -225,6 +238,7 @@
         <tr><th>等级</th><td><span class="bk-rank" style="--rc:${r.color}">${"■".repeat(rank)}${"□".repeat(Math.max(0, 7 - rank))}</span> ${esc(r.name)}</td></tr>
         <tr><th>磨损区间</th><td>${min.toFixed(2)} — ${max.toFixed(2)}</td></tr>
         <tr><th>可出外观</th><td class="bk-checks">${WEARS.map((w, i) => `<span class="${avail[i] ? "on" : ""}">${avail[i] ? "☒" : "☐"} ${WEAR_SHORT[i]}</span>`).join("")}</td></tr>
+        ${s.colors && s.colors.length ? `<tr><th>主色</th><td class="bk-sws inline">${s.colors.map((c) => swatch(c, `#/color/${c}/${enc(s.catName)}/0`, false)).join("")}<a class="bk-same" href="#/color/${s.colors.join("+")}/${enc(s.catName)}/0">同色系${esc(s.catName)} ›</a></td></tr>` : ""}
         <tr><th>附加</th><td>${[s.st && "StatTrak™", s.sv && "纪念品", s.phase].filter(Boolean).map(esc).join("　") || "—"}</td></tr>
         ${s.pattern ? `<tr><th>涂装</th><td>${esc(s.pattern)}</td></tr>` : ""}
       </table>
@@ -254,8 +268,8 @@
   let fromList = null;   // { list, crumbs, key } of the last index sheet, used to page through items
   let state = null;
 
-  function sheetView(order, tab, list, base, page, title, sub, runLabel, crumbs) {
-    const sp = sheetSpread({ title, sub, list, base, page, runLabel });
+  function sheetView(order, tab, list, base, page, title, sub, runLabel, crumbs, extra) {
+    const sp = sheetSpread({ title, sub, list, base, page, runLabel, extra });
     const here = `${base}/${sp.page}`;
     return { kind: "sheet", order: [...order, sp.page], tab, list, crumbs, back: here, key: base, ...sp };
   }
@@ -283,6 +297,21 @@
       const q = arg || "";
       const list = search(q);
       return sheetView([3, 99, q], null, list, `#/search/${enc(q)}`, page(arg2), `检索：${q}`, `${list.length} 件`, "检索结果", [[`检索：${q}`, null]]);
+    }
+    if (kind === "color") {
+      const ids = (arg || "").split("+").filter((c) => colorById[c]).slice(0, 3);
+      if (!ids.length || !hasColors) return resolve("#/toc");
+      const cat = arg2 && arg2 !== "all" && cats.some((c) => c.name === arg2) ? arg2 : "all";
+      const list = skins.filter((s) => s.colors && ids.every((c) => s.colors.includes(c)) && (cat === "all" || s.catName === cat))
+        .sort((a, b) => ((a.colors[0] === ids[0] ? 0 : 1) - (b.colors[0] === ids[0] ? 0 : 1)) || byRarity(a, b));
+      const name = ids.map((c) => colorById[c][1]).join(" + ");
+      const href = (cs, ct) => `#/color/${cs.join("+")}/${enc(ct)}/0`;
+      const toggle = (c) => (ids.includes(c) ? ids.filter((x) => x !== c) : [...ids, c].slice(-3));
+      const extra = `<div class="bk-filter">
+          <div class="bk-sws">${COLORS.map((c) => { const t = toggle(c[0]); return t.length ? swatch(c[0], href(t, cat), ids.includes(c[0]), "data-replace") : swatch(c[0], href(ids, cat), true, "data-replace"); }).join("")}</div>
+          <div class="bk-chips"><a data-replace href="${href(ids, "all")}"${cat === "all" ? ' aria-current="true"' : ""}>全部</a>${cats.map((c) => `<a data-replace href="${href(ids, c.name)}"${cat === c.name ? ' aria-current="true"' : ""}>${esc(TAB_SHORT[c.name] || c.name)}</a>`).join("")}</div>
+        </div>`;
+      return sheetView([3, 98, ids.join("+"), cat], null, list, `#/color/${ids.join("+")}/${enc(cat)}`, page(parts[3]), `${name}色系`, `${list.length} 件${cat !== "all" ? ` · ${cat}` : ""}`, "按颜色检索", [["按颜色", null], [`${name}色系`, null]], extra);
     }
     if (kind === "cases") {
       const sp = listSpread({ title: "附录甲 · 武器箱", en: "CASES", rows: crates.map(caseRow), base: "#/cases", page: page(arg) });
