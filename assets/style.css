@@ -74,8 +74,8 @@ a { color: inherit; }
 .bk-page a { color: var(--ink); }
 
 /* bookmarks */
-.bk-tabs { position: absolute; left: 100%; top: 54px; display: flex; flex-direction: column; gap: 4px; z-index: 1; }
-.bk-tabs a { writing-mode: vertical-rl; text-decoration: none; font: 700 .78rem var(--zh); letter-spacing: .25em; padding: 12px 6px 10px 8px; color: #e6e2c8; border-radius: 0 6px 6px 0;
+.bk-tabs { position: absolute; left: 100%; top: 30px; bottom: 30px; display: flex; flex-direction: column; gap: 4px; z-index: 1; }
+.bk-tabs a { flex: 0 1 76px; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; text-decoration: none; font: 700 clamp(.62rem, 1.9vh, .74rem)/1 var(--zh); letter-spacing: .12em; white-space: nowrap; padding: 4px 6px 4px 8px; color: #e6e2c8; border-radius: 0 6px 6px 0;
   background: #5b6240; box-shadow: inset 4px 0 4px -2px rgba(0, 0, 0, .35); transition: transform .2s, background .2s; transform: translateX(-4px); }
 .bk-tabs a:nth-child(even) { background: #6c6f4a; }
 .bk-tabs a:nth-last-child(-n+2) { background: #7a5b3a; }

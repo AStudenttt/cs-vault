@@ -6,6 +6,7 @@
   const app = $("#app");
   const CAT_ORDER = ["匕首", "手套", "步枪", "手枪", "微型冲锋枪", "重型武器", "装备"];
   const CAT_EN = { "匕首": "KNIVES", "手套": "GLOVES", "步枪": "RIFLES", "手枪": "PISTOLS", "微型冲锋枪": "SMGS", "重型武器": "HEAVY", "装备": "EQUIPMENT" };
+  const TAB_SHORT = { "微型冲锋枪": "冲锋枪", "重型武器": "重武器" };
   const CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
   const WEARS = [
     ["崭新出厂", "Factory New", 0, 0.07], ["略有磨损", "Minimal Wear", 0.07, 0.15],
@@ -173,7 +174,12 @@
     return { left, right, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
   }
   const caseRow = (c) => `<a class="bk-idx-row" href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span class="t">${esc(c.name)}<small>${esc(c.date || "")}</small></span><span class="dots"></span><span class="n">${c.items.length}</span></a>`;
-  const collRow = (c, n) => `<a class="bk-idx-row" href="#/coll/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span class="t">${esc(c.name)}</span><span class="dots"></span><span class="n">${n}</span></a>`;
+  // a collection is shown by its rarest skin; the set's own icon is the fallback
+  const collRow = (c, n) => {
+    const top = best(skins.filter((s) => s.coll.includes(c.id)));
+    const pic = top && top.img ? img(top.img, 128) : c.img;
+    return `<a class="bk-idx-row" href="#/coll/${enc(c.id)}"><span class="th"${top ? ` style="--rc:${rc(top)}"` : ""}>${pic ? `<img loading="lazy" alt="" src="${esc(pic)}">` : ""}</span><span class="t">${esc(c.name)}</span><span class="dots"></span><span class="n">${n}</span></a>`;
+  };
 
   function siblings(s) {
     const key = s.coll[0];
@@ -365,7 +371,7 @@
           </div>
         </div>
       </div>`;
-    $(".bk-tabs", app).innerHTML = cats.map((c, i) => `<a href="#/c/${enc(c.name)}" data-tab="${i}">${esc(c.name)}</a>`).join("")
+    $(".bk-tabs", app).innerHTML = cats.map((c, i) => `<a href="#/c/${enc(c.name)}" data-tab="${i}" title="${esc(c.name)}">${esc(TAB_SHORT[c.name] || c.name)}</a>`).join("")
       + `<a href="#/cases" data-tab="cases">武器箱</a><a href="#/colls" data-tab="colls">收藏品</a>`;
 
     app.addEventListener("submit", (e) => {
