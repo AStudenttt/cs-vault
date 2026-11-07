@@ -438,16 +438,19 @@
     if (next.kind === "toc") { next.prev = "#/"; }
 
     if (next.kind === "cover") {
+      book.classList.remove("shutting");
+      if (prev && prev.kind !== "cover" && wide && !reduceMotion) { closeCover(book, oldL, L, R); return; }
       book.classList.add("closed");
       L.innerHTML = ""; R.innerHTML = coverFace();
       if (prev && !reduceMotion) { book.classList.remove("closing"); void book.offsetWidth; book.classList.add("closing"); }
       return;
     }
-    book.classList.remove("closed", "closing");
+    book.classList.remove("closed", "closing", "shutting");
+    $(".bk-cover-leaf.closing-leaf", book)?.remove();
     L.innerHTML = next.left; R.innerHTML = next.right;
     L.scrollTop = 0; R.scrollTop = 0; $(".bk-spread", app).scrollTop = 0;
 
-    if (prev && prev.kind === "cover") { if (!reduceMotion) openCover(book); return; }
+    if (prev && prev.kind === "cover") { if (!reduceMotion) openCover(book, L); return; }
     if (!dir || reduceMotion) return;
     if (!wide) {
       const sp = $(".bk-spread", app);
@@ -476,14 +479,31 @@
     setTimeout(done, 1200);
   }
 
-  function openCover(book) {
+  // Opening: the cover turns over on the spine while the book slides from centred-closed to open.
+  // The inside of the cover carries the first left page, so nothing jumps when the leaf is removed.
+  function openCover(book, L) {
     if (!wideQuery.matches) { book.classList.remove("rise"); void book.offsetWidth; book.classList.add("rise"); return; }
+    $(".bk-cover-leaf", book)?.remove();
     const cover = document.createElement("div");
-    cover.className = "bk-cover-leaf";
-    cover.innerHTML = `<div class="face front">${coverFace()}</div><div class="face backside"></div>`;
+    cover.className = "bk-cover-leaf opening";
+    cover.innerHTML = `<div class="face front">${coverFace()}</div><div class="face backside bk-page bk-left">${L.innerHTML}</div>`;
     book.appendChild(cover);
-    cover.addEventListener("animationend", () => cover.remove(), { once: true });
-    setTimeout(() => cover.remove(), 2000);
+    const done = () => cover.remove();
+    cover.addEventListener("animationend", done, { once: true });
+    setTimeout(done, 1600);
+  }
+
+  // Closing: the reverse. The left page swings back over as the cover and the book slides back to centre.
+  function closeCover(book, oldL, L, R) {
+    $(".bk-cover-leaf", book)?.remove();
+    const cover = document.createElement("div");
+    cover.className = "bk-cover-leaf closing-leaf";
+    cover.innerHTML = `<div class="face front">${coverFace()}</div><div class="face backside bk-page bk-left">${oldL}</div>`;
+    book.appendChild(cover);
+    book.classList.add("closed", "shutting");
+    const done = () => { if (!cover.isConnected) return; L.innerHTML = ""; R.innerHTML = coverFace(); book.classList.remove("shutting"); cover.remove(); };
+    cover.addEventListener("animationend", done, { once: true });
+    setTimeout(done, 1600);
   }
 
   boot();
