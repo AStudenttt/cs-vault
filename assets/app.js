@@ -123,7 +123,7 @@
         <h2 class="bk-h">卷首说明</h2>
         <p class="bk-p">本册收录 Counter-Strike 2 全部武器、刀具与手套涂装共 ${skins.length.toLocaleString()} 件，按武器类别分为 ${cats.length} 章；武器箱与收藏品另列于附录。每件展品附图版一幅、档案一页。</p>
         <h3 class="bk-h3">查阅方法</h3>
-        <ul class="bk-ul"><li>点目录中的章节进入，逐级查到单件展品</li><li>点书角或左右滑动翻页，右侧书签可直接跳章</li><li>知道名字的，直接在下方检索</li></ul>
+        <ul class="bk-ul"><li>点目录中的章节进入，逐级查到单件展品</li><li>点书角或左右滑动翻页，书签和顶部路径可直接跳转</li><li>知道名字的，直接在下方检索</li></ul>
         <form class="bk-search" data-search role="search"><label for="bk-q">检索</label><input id="bk-q" name="q" type="search" placeholder="皮肤、武器或英文名，如 AK 火神" autocomplete="off"><button type="submit">查</button></form>
         ${hasColors ? `<div class="bk-colors"><span class="bk-colors-h">按颜色检索</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/color/${c[0]}/all/0`, false)).join("")}</div><p class="bk-colors-tip">先选主色，结果页里可再加一色或限定类别。</p></div>` : ""}
         <div class="bk-imprint"><b>出版说明</b>数据取自 ByMykel/CSGO-API，图片来自 Steam，每周更新。本册与 Valve 无关，Counter-Strike 及相关素材版权归 Valve Corporation 所有。</div>
@@ -173,7 +173,7 @@
       <div class="bk-grid">${b.map(photoCell).join("")}</div>
       ${!b.length && list.length ? `<p class="bk-end">— 本节完 —</p>` : ""}
       ${folio(p * 2 + 2)}`;
-    return { left, right, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
+    return { left, right, rightEmpty: !b.length, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
   }
 
   function listSpread({ title, en, rows, base, page }) {
@@ -184,7 +184,7 @@
     const a = rows.slice(from, from + ROWS_PER_PAGE), b = rows.slice(from + ROWS_PER_PAGE, from + per);
     const left = `${run(title, en)}<div class="bk-sheet-head"><h2 class="bk-h">${title}</h2><span>共 ${rows.length}</span></div><nav class="bk-index">${a.join("")}</nav>${folio(`附·${p * 2 + 1}`)}`;
     const right = `${run(`第 ${from + 1}–${Math.min(rows.length, from + per)} 项`, pages > 1 ? `${p + 1} / ${pages} 页` : "")}<nav class="bk-index">${b.join("")}</nav>${folio(`附·${p * 2 + 2}`)}`;
-    return { left, right, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
+    return { left, right, rightEmpty: !b.length, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
   }
   const caseRow = (c) => `<a class="bk-idx-row" href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span class="t">${esc(c.name)}<small>${esc(c.date || "")}</small></span><span class="dots"></span><span class="n">${c.items.length}</span></a>`;
   // a collection is shown by its rarest skin; the set's own icon is the fallback
@@ -430,13 +430,44 @@
     bindSwipe($(".bk-book", app));
   }
 
+  // On a phone the book is read one page at a time: turning first moves between the left and
+  // right page of the current spread, then on to the neighbouring spread.
+  let side = 0, pendingSide = null;
+  const prevOf = (st) => (st.kind === "toc" ? "#/" : st.prev);
+  const nextOf = (st) => (st.kind === "cover" ? "#/toc" : st.next);
+  const single = () => !wideQuery.matches;
+
   function turn(d) {
     if (!state || flipping) return;
     if (state.kind === "cover") { if (d > 0) location.hash = "#/toc"; return; }
-    const h = d > 0 ? state.next : state.prev;
+    if (single()) {
+      if (d > 0 && side === 0 && !state.rightEmpty) { setSide(1, 1); return; }
+      if (d < 0 && side === 1) { setSide(0, -1); return; }
+    }
+    const h = d > 0 ? nextOf(state) : prevOf(state);
     if (!h) return;
+    pendingSide = d < 0 && single() ? 1 : 0;
+    if (h === "#/") { location.hash = h; return; }
     history.replaceState(null, "", h);
     route(false, d);
+  }
+
+  function setSide(v, dir) {
+    side = v;
+    const sp = $(".bk-spread", app);
+    sp.dataset.side = String(v);
+    sp.querySelectorAll(".bk-page").forEach((pg) => { pg.scrollTop = 0; });
+    if (dir && !reduceMotion) { sp.classList.remove("slide-f", "slide-b"); void sp.offsetWidth; sp.classList.add(dir > 0 ? "slide-f" : "slide-b"); }
+    updateCorners();
+  }
+
+  function updateCorners() {
+    const st = state;
+    const one = single() && st.kind !== "cover";
+    const canPrev = (one && side === 1) || !!prevOf(st);
+    const canNext = (one && side === 0 && !st.rightEmpty) || !!nextOf(st);
+    $(".bk-corner.prev", app).toggleAttribute("hidden", !canPrev);
+    $(".bk-corner.next", app).toggleAttribute("hidden", !canNext);
   }
 
   function bindSwipe(el) {
@@ -467,10 +498,10 @@
     app.dataset.view = next.kind;
     app.querySelectorAll("[data-tab]").forEach((t) => t.setAttribute("aria-current", String(String(t.dataset.tab) === String(next.tab))));
 
-    const cp = $(".bk-corner.prev", app), cn = $(".bk-corner.next", app);
-    const prevH = next.kind === "toc" ? "#/" : next.prev, nextH = next.kind === "cover" ? "#/toc" : next.next;
-    cp.toggleAttribute("hidden", !prevH); cn.toggleAttribute("hidden", !nextH);
-    if (next.kind === "toc") { next.prev = "#/"; }
+    side = pendingSide ?? 0; pendingSide = null;
+    if (side === 1 && next.rightEmpty) side = 0;
+    $(".bk-spread", app).dataset.side = next.kind === "cover" ? "1" : String(side);
+    updateCorners();
 
     if (next.kind === "cover") {
       book.classList.remove("shutting");

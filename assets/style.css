@@ -250,38 +250,43 @@ a { color: inherit; }
 
 /* ===== one page at a time on upright or narrow screens ===== */
 @media not ((min-width: 1000px) and (min-aspect-ratio: 1/1)) {
+  /* pocket edition: one page at a time, turned sideways */
   .bk-book, .bk-book.closed { width: 100%; margin-right: 0; padding: 6px; }
   .bk-book.closed { transform: none; width: min(560px, 100%); height: auto; aspect-ratio: 3 / 4; max-height: 100%; align-self: center; margin: 0 auto; }
+  .bk-book::before, .bk-book::after, .bk-book.closed::after { width: 100%; border-radius: 10px; }
   .bk-book.closed::before { display: none; }
-  .bk-book.closed::after { width: 100%; border-radius: 10px; }
-  .bk-book::before, .bk-book::after { width: 100%; border-radius: 10px; }
-  .bk-left { overflow: visible; }
   .bk-tabs { display: none; }
-  .bk-spread { display: block; overflow-y: auto; -webkit-overflow-scrolling: touch; box-shadow: 3px 0 0 #cfcbb8, 6px 0 0 #bdb9a5; }
-  .bk-page { height: auto; min-height: 0; overflow: visible; padding: 20px 20px 24px; }
-  .bk-left, .bk-right { box-shadow: none; }
-  .bk-left { padding-bottom: 6px; }
-  .bk-left .bk-folio { display: none; }
-  .bk-right { padding-top: 8px; padding-bottom: 96px; }
-  .bk-right > .bk-run { border-top: 1.5px solid var(--ink); border-bottom: 0; padding-top: 6px; }
-  .bk-book.closed .bk-spread { height: 100%; }
-  .bk-book.closed .bk-right { height: 100%; padding: 0; }
+  .bk-spread { display: block; height: 100%; box-shadow: 3px 0 0 #cfcbb8, 6px 0 0 #bdb9a5; }
+  .bk-page { position: absolute; inset: 0; height: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; padding: 18px 18px calc(84px + env(safe-area-inset-bottom, 0px)); }
+  .bk-spread[data-side="0"] .bk-right, .bk-spread[data-side="1"] .bk-left { display: none; }
+  .bk-left { box-shadow: inset -16px 0 22px -16px rgba(40, 36, 20, .45); }
+  .bk-right { box-shadow: inset 16px 0 22px -16px rgba(40, 36, 20, .45); }
+  .bk-book.closed .bk-right { padding: 0; }
+  .bk-front, .bk-chapter { flex: 1 0 auto; }
   .bk-photo { min-height: 0; aspect-ratio: 4 / 3; flex: none; }
   .bk-plate, .bk-ch-plate { flex: none; }
-  .bk-grid, .bk-left .bk-grid, .bk-right .bk-grid { flex: none; grid-template-rows: none; grid-auto-rows: auto; }
+  .bk-grid, .bk-left .bk-grid, .bk-right .bk-grid, .bk-left .bk-filter + .bk-grid { flex: none; grid-template-rows: none; grid-auto-rows: auto; }
   .bk-cell-photo { aspect-ratio: 4 / 3; flex: none; }
-  .bk-stamp { top: 40px; right: 20px; font-size: 1.1rem; }
+  .bk-folio { margin-top: 18px; }
+  .bk-stamp { top: 40px; right: 18px; font-size: 1.05rem; }
+  .bk-kicker, .bk-item-h { max-width: calc(100% - 100px); }
   .bk-corner { position: fixed; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: rgba(227, 224, 208, .94) !important; width: 50px; height: 50px; border-radius: 50%; box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
   .bk-corner span { position: static; display: grid; place-items: center; height: 100%; }
   .bk-corner.prev { left: max(22px, env(safe-area-inset-left, 0px)); }
   .bk-corner.next { right: max(22px, env(safe-area-inset-right, 0px)); }
-  .bk-spread.slide-f { animation: bk-slide-f .45s cubic-bezier(.2, .7, .2, 1) both; }
-  .bk-spread.slide-b { animation: bk-slide-b .45s cubic-bezier(.2, .7, .2, 1) both; }
+  .bk-spread.slide-f { animation: bk-slide-f .4s cubic-bezier(.2, .7, .2, 1) both; }
+  .bk-spread.slide-b { animation: bk-slide-b .4s cubic-bezier(.2, .7, .2, 1) both; }
   .bk-book.rise .bk-spread { animation: bk-rise .6s cubic-bezier(.2, .7, .2, 1) both; }
   .bk-pos { display: none; }
 }
 @media (max-width: 560px) {
-  .bk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .bk-top { gap: 8px; }
+  .bk-crumbs { font-size: .8rem; gap: 5px; }
+  .bk-h { font-size: 1.45rem; }
+  .bk-item-h { font-size: 1.9rem; }
+  .bk-form th { width: 5.2em; padding: 5px 6px; }
+  .bk-form td { padding: 5px 8px; }
   .bk-qtop input { width: 110px; }
   .bk-ch-title { font-size: 3rem; }
 }
