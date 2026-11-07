@@ -314,138 +314,153 @@
     return lines.join(" ");
   }
 
-  function bar(value, total = 12) {
-    const n = Math.round(value * total);
-    return "█".repeat(n) + "░".repeat(total - n);
+  // ---------- the book (军械图鉴) ----------
+  const ROMAN = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"];
+  const STAMPS = { 0: "普通", 1: "普通", 2: "限制", 3: "限制", 4: "机密", 5: "绝密", 6: "绝密", 7: "违禁", 8: "违禁" };
+  let flipping = false;
+
+  function pageNo(s) { return skins.indexOf(s) + 1; }
+  function fileCode(s) {
+    const w = s.weapon.replace(/^weapon_(knife_)?/, "").replace(/_/g, "").toUpperCase().slice(0, 6);
+    return `FM-${w}-${String(pageNo(s)).padStart(4, "0")}`;
   }
 
-  function openSheet(s, dir) {
-    current = s;
-    const list = listFor(s);
-    const idx = list.findIndex((x) => x.id === s.id);
-    const variants = skins.filter((x) => x.name === s.name);
-    const cratesOf = s.crates.map((id) => crateById.get(id)).filter(Boolean);
-    const colls = s.coll.map((id) => meta.collections[id]).filter(Boolean);
-    const min = s.min ?? 0, max = s.max ?? 1;
-    const avail = WEARS.map((w) => w[3] > min && w[2] < max);
-    const r = rarityById[s.rarity] || { name: "", color: "#8c949c" };
-    const rank = (rarityRank[s.rarity] ?? 0) + 1;
-    const [sibLabel, sibs] = siblings(s);
-    const no = String(skins.indexOf(s) + 1).padStart(4, "0");
-    const pattern = shortName(s);
-    const pad = (n) => String(n).padStart(2, "0");
-    const firstOpen = sheet.hidden;
-
-    sheetCard.style.setProperty("--rc", r.color);
-    const tm = themeFor(s);
-    sheet.dataset.tm = tm;
-    sheetCard.innerHTML = `
-      <div class="tm-bezel">
-        <div class="tm-plate"><span>${TERMINALS[tm]}</span><button class="tm-swap" data-tm-swap aria-label="切换到${TERMINALS[tm === "genesis" ? "deadhand" : "genesis"]}">⇄ ${TERMINALS[tm === "genesis" ? "deadhand" : "genesis"]}</button></div>
-        <div class="tm-screen">
-          <header class="tm-bar">
-            <button class="tm-key" data-close aria-label="断开并返回列表">[ 断开 ]</button>
-            <span class="tm-path">UPLINK://军火商 ▸ ${esc(s.catName)} ▸ ${esc(s.weaponName)}</span>
-            <span class="tm-led" aria-hidden="true"></span>
-          </header>
-
-          <div class="tm-page ${dir ? "turn-" + (dir > 0 ? "f" : "b") : ""}">
-            <section class="tm-left" aria-label="展品扫描图">
-              <div class="tm-offer">报价 <b>${pad(idx + 1)}</b><span>/ ${pad(list.length)}</span></div>
-              <div class="tm-scan">
-                <span class="cr tl"></span><span class="cr tr"></span><span class="cr bl"></span><span class="cr br"></span>
-                <span class="tm-grid" aria-hidden="true"></span>
-                ${s.img ? `<img class="tm-img" alt="${esc(s.name)}" src="${esc(img(s.img, 512))}">` : `<span class="tm-noimg">无图像信号</span>`}
-                <span class="tm-sweep" aria-hidden="true"></span>
-                <span class="tm-tagno">FILE ${no}</span>
-              </div>
-              ${variants.length > 1 ? `<div class="tm-variants" aria-label="同款其他版本">${variants.map((v) => `<button data-go="${esc(v.id)}" aria-current="${v.id === s.id}"><img alt="" loading="lazy" src="${esc(img(v.img, 128))}"><span>${esc(v.phase || "默认")}</span></button>`).join("")}</div>` : ""}
-              <div class="tm-dealer"><span class="tm-who">军火商</span><p class="tm-say" data-say="${esc(dealerLine(s, avail))}"></p></div>
-            </section>
-
-            <section class="tm-right" aria-labelledby="sheet-title">
-              <div class="tm-kicker">${esc(s.weaponName)}</div>
-              <h2 id="sheet-title">${esc(pattern)}</h2>
-              <div class="tm-en">${esc((s.en.split("|")[1] || s.en).trim())}</div>
-
-              <dl class="tm-read">
-                <dt>稀有度</dt><dd><span class="tm-meter" style="color:${r.color}">${bar(rank / meta.rarities.length, 8)}</span> ${esc(r.name)}</dd>
-                <dt>磨损</dt><dd><span class="tm-meter">${"░".repeat(Math.round(min * 20))}${"▓".repeat(Math.max(1, Math.round((max - min) * 20)))}${"░".repeat(Math.max(0, 20 - Math.round(min * 20) - Math.max(1, Math.round((max - min) * 20))))}</span> ${min.toFixed(2)}–${max.toFixed(2)}</dd>
-                <dt>可选外观</dt><dd class="tm-wears">${WEARS.map((w, i) => `<span class="${avail[i] ? "on" : ""}">${WEAR_SHORT[i]}</span>`).join("")}</dd>
-                <dt>附加</dt><dd>${[s.st && "StatTrak™ 计数器", s.sv && "纪念品版本", s.phase && s.phase].filter(Boolean).map(esc).join(" · ") || "—"}</dd>
-                ${s.pattern ? `<dt>涂装</dt><dd>${esc(s.pattern)}</dd>` : ""}
-              </dl>
-
-              ${s.desc ? `<p class="tm-desc">${esc(s.desc)}</p>` : ""}
-              ${s.lore ? `<p class="tm-lore">// ${esc(s.lore)}</p>` : ""}
-
-              <div class="tm-block"><h3>&gt; 货源</h3>
-                <ul class="tm-list">
-                  ${colls.map((c) => `<li><a href="#/coll/${encodeURIComponent(c.id)}">${esc(c.name)}</a></li>`).join("")}
-                  ${cratesOf.slice(0, 6).map((c) => `<li><a href="#/case/${encodeURIComponent(c.id)}">${esc(c.name)}</a></li>`).join("")}
-                  ${cratesOf.length > 6 ? `<li class="dim">另有 ${cratesOf.length - 6} 个武器箱</li>` : ""}
-                  ${!colls.length && !cratesOf.length ? `<li class="dim">来源不明</li>` : ""}
-                </ul>
-              </div>
-
-              ${sibs.length ? `<div class="tm-block"><h3>&gt; 同批货 · ${esc(sibLabel)}</h3><div class="tm-sibs">${sibs.map((x) => `<button data-go="${esc(x.id)}" style="--rc:${rc(x)}" title="${esc(x.name)}"><img alt="" loading="lazy" src="${esc(img(x.img, 128))}"><span>${esc(shortName(x))}</span></button>`).join("")}</div></div>` : ""}
-
-              ${s.en ? `<div class="tm-block"><h3>&gt; 外部行情</h3><div class="tm-links">${WEARS.filter((w, i) => avail[i]).map((w) => `<a target="_blank" rel="noopener" href="https://steamcommunity.com/market/listings/730/${encodeURIComponent(marketName(s, w[1]))}">Steam·${w[0]}</a>`).join("")}<a target="_blank" rel="noopener" href="https://buff.163.com/market/csgo#game=csgo&page_num=1&search=${encodeURIComponent(s.name.replace("（★）", ""))}">BUFF</a></div></div>` : ""}
-            </section>
-          </div>
-
-          <footer class="tm-foot">
-            <button class="tm-key" data-step="-1"${idx <= 0 ? " disabled" : ""}>[ ◂ 上一份 ]</button>
-            <span class="tm-hint">左右滑动翻页</span>
-            <button class="tm-key primary" data-step="1"${idx >= list.length - 1 ? " disabled" : ""}>[ 下一份 ▸ ]</button>
-          </footer>
-
-          ${firstOpen && !reduceMotion ? `<div class="tm-boot" aria-hidden="true"><pre></pre></div>` : ""}
+  function leftPage(s, ctx) {
+    const { variants, list, idx, r } = ctx;
+    return `
+      <div class="bk-run"><span>${esc(s.catName)} · ${esc(s.weaponName)}</span><span>图版 ${String(idx + 1).padStart(2, "0")}</span></div>
+      <figure class="bk-plate">
+        <span class="tape t1" aria-hidden="true"></span><span class="tape t2" aria-hidden="true"></span>
+        <div class="bk-photo" style="--rc:${r.color}">
+          ${s.img ? `<img alt="${esc(s.name)}" src="${esc(img(s.img, 512))}">` : `<span class="bk-noimg">图版缺失</span>`}
         </div>
+        <figcaption><b>图 ${String(idx + 1).padStart(2, "0")}</b> ${esc(s.name)}${s.phase ? `（${esc(s.phase)}）` : ""}</figcaption>
+      </figure>
+      ${variants.length > 1 ? `<div class="bk-strip" aria-label="同款其他版本">${variants.map((v) => `<button data-go="${esc(v.id)}" aria-current="${v.id === s.id}"><img alt="" loading="lazy" src="${esc(img(v.img, 128))}"><span>${esc(v.phase || "默认")}</span></button>`).join("")}</div>` : ""}
+      <div class="bk-note"><span class="bk-note-h">军需官备注</span><p>${esc(dealerLine(s, ctx.avail))}</p></div>
+      <div class="bk-folio">— ${pageNo(s) * 2} —</div>`;
+  }
+
+  function rightPage(s, ctx) {
+    const { cratesOf, colls, min, max, avail, r, sibs, sibLabel, rank } = ctx;
+    const stamp = STAMPS[rank] || "机密";
+    return `
+      <div class="bk-run"><span>${fileCode(s)}</span><span>${esc(r.name)}</span></div>
+      <div class="bk-stamp" style="--sc:${r.color}" aria-hidden="true">${stamp}</div>
+      <div class="bk-kicker">${esc(s.weaponName)}${s.weaponEn && s.weaponEn !== s.weaponName ? ` ／ ${esc(s.weaponEn)}` : ""}</div>
+      <h2 id="sheet-title">${esc(shortName(s))}</h2>
+      <div class="bk-en">${esc((s.en.split("|")[1] || s.en).trim())}</div>
+
+      <table class="bk-form">
+        <tr><th>等级</th><td><span class="bk-rank" style="--rc:${r.color}">${"■".repeat(rank)}${"□".repeat(Math.max(0, 7 - rank))}</span> ${esc(r.name)}</td></tr>
+        <tr><th>磨损区间</th><td>${min.toFixed(2)} — ${max.toFixed(2)}</td></tr>
+        <tr><th>可出外观</th><td class="bk-checks">${WEARS.map((w, i) => `<span class="${avail[i] ? "on" : ""}">${avail[i] ? "☒" : "☐"} ${WEAR_SHORT[i]}</span>`).join("")}</td></tr>
+        <tr><th>附加</th><td>${[s.st && "StatTrak™", s.sv && "纪念品", s.phase].filter(Boolean).map(esc).join("　") || "—"}</td></tr>
+        ${s.pattern ? `<tr><th>涂装</th><td>${esc(s.pattern)}</td></tr>` : ""}
+      </table>
+
+      ${s.desc ? `<p class="bk-desc">${esc(s.desc)}</p>` : ""}
+      ${s.lore ? `<p class="bk-lore">“${esc(s.lore)}”</p>` : ""}
+
+      <div class="bk-sec"><h3>来源</h3><p class="bk-src">
+        ${colls.map((c) => `<a href="#/coll/${encodeURIComponent(c.id)}">${esc(c.name)}</a>`).join("、")}${colls.length && cratesOf.length ? "；" : ""}${cratesOf.slice(0, 5).map((c) => `<a href="#/case/${encodeURIComponent(c.id)}">${esc(c.name)}</a>`).join("、")}${cratesOf.length > 5 ? ` 等 ${cratesOf.length} 处` : ""}${!colls.length && !cratesOf.length ? "不详" : ""}
+      </p></div>
+
+      ${sibs.length ? `<div class="bk-sec"><h3>参见 · ${esc(sibLabel)}</h3><div class="bk-see">${sibs.slice(0, 8).map((x) => `<button data-go="${esc(x.id)}" style="--rc:${rc(x)}"><img alt="" loading="lazy" src="${esc(img(x.img, 128))}"><span>${esc(shortName(x))}</span></button>`).join("")}</div></div>` : ""}
+
+      ${s.en ? `<div class="bk-links">${WEARS.filter((w, i) => avail[i]).map((w) => `<a target="_blank" rel="noopener" href="https://steamcommunity.com/market/listings/730/${encodeURIComponent(marketName(s, w[1]))}">Steam·${w[0]}</a>`).join("")}<a target="_blank" rel="noopener" href="https://buff.163.com/market/csgo#game=csgo&page_num=1&search=${encodeURIComponent(s.name.replace("（★）", ""))}">BUFF</a></div>` : ""}
+      <div class="bk-folio">— ${pageNo(s) * 2 + 1} —</div>`;
+  }
+
+  function context(s) {
+    const list = listFor(s);
+    const min = s.min ?? 0, max = s.max ?? 1;
+    const r = rarityById[s.rarity] || { name: "", color: "#6b6f5e" };
+    const [sibLabel, sibs] = siblings(s);
+    return {
+      list, idx: list.findIndex((x) => x.id === s.id),
+      variants: skins.filter((x) => x.name === s.name),
+      cratesOf: s.crates.map((id) => crateById.get(id)).filter(Boolean),
+      colls: s.coll.map((id) => meta.collections[id]).filter(Boolean),
+      min, max, avail: WEARS.map((w) => w[3] > min && w[2] < max), r,
+      rank: (rarityRank[s.rarity] ?? 0) + 1, sibLabel, sibs,
+    };
+  }
+
+  const wide = () => matchMedia("(min-width: 1000px) and (min-aspect-ratio: 1/1)").matches;
+
+  function openSheet(s, dir) {
+    const firstOpen = sheet.hidden;
+    const prevLeft = $(".bk-left", sheetCard), prevRight = $(".bk-right", sheetCard);
+    const oldL = prevLeft ? prevLeft.innerHTML : "", oldR = prevRight ? prevRight.innerHTML : "";
+    current = s;
+    const ctx = context(s);
+    const { list, idx } = ctx;
+
+    sheetCard.innerHTML = `
+      <div class="bk-desk">
+        <div class="bk-top">
+          <button class="bk-btn" data-close aria-label="合上书，返回列表">✕ 合上</button>
+          <span class="bk-title">CS 饰品馆 · 军械图鉴</span>
+          <span class="bk-pos">${idx + 1} / ${list.length}</span>
+        </div>
+        <div class="bk-book">
+          <div class="bk-spread">
+            <section class="bk-page bk-left" aria-label="图版">${leftPage(s, ctx)}</section>
+            <section class="bk-page bk-right" aria-label="档案">${rightPage(s, ctx)}</section>
+          </div>
+          <button class="bk-corner prev" data-step="-1" aria-label="上一页"${idx <= 0 ? " disabled" : ""}><span>‹</span></button>
+          <button class="bk-corner next" data-step="1" aria-label="下一页"${idx >= list.length - 1 ? " disabled" : ""}><span>›</span></button>
+        </div>
+        <p class="bk-hint">左右滑动或点书角翻页</p>
       </div>`;
 
     sheet.hidden = false;
     document.body.style.overflow = "hidden";
-    $(".tm-right", sheetCard).scrollTop = 0;
-    sheetCard.scrollTop = 0;
+    $(".bk-right", sheetCard).scrollTop = 0;
     bindStage();
-    if (firstOpen && !reduceMotion) boot_seq(s).then(() => typeLine());
-    else typeLine();
-    if (firstOpen) $("[data-close]", sheetCard).focus({ preventScroll: true });
+    if (firstOpen) {
+      if (!reduceMotion) openCover();
+      $("[data-close]", sheetCard).focus({ preventScroll: true });
+    } else if (dir && !reduceMotion) {
+      flip(dir, oldL, oldR);
+    }
   }
 
-  let typeTimer = 0;
-  function typeLine() {
-    const el = $(".tm-say", sheetCard);
-    if (!el) return;
-    const text = el.dataset.say;
-    clearInterval(typeTimer);
-    if (reduceMotion) { el.textContent = text; return; }
-    let i = 0;
-    el.textContent = "";
-    el.classList.add("typing");
-    typeTimer = setInterval(() => {
-      i += 1;
-      el.textContent = text.slice(0, i);
-      if (i >= text.length) { clearInterval(typeTimer); el.classList.remove("typing"); }
-    }, 32);
+  // a page leaf turns over: front is the old page, back is the new one
+  function flip(dir, oldL, oldR) {
+    const book = $(".bk-book", sheetCard), spread = $(".bk-spread", sheetCard);
+    const L = $(".bk-left", sheetCard), R = $(".bk-right", sheetCard);
+    if (!wide()) {
+      spread.classList.add(dir > 0 ? "slide-f" : "slide-b");
+      return;
+    }
+    flipping = true;
+    const leaf = document.createElement("div");
+    leaf.className = "bk-leaf " + (dir > 0 ? "fwd" : "back");
+    leaf.innerHTML = dir > 0
+      ? `<div class="face front bk-page bk-right">${oldR}</div><div class="face backside bk-page bk-left">${L.innerHTML}</div>`
+      : `<div class="face front bk-page bk-left">${oldL}</div><div class="face backside bk-page bk-right">${R.innerHTML}</div>`;
+    const under = dir > 0 ? L : R;          // the page the leaf lands on stays hidden until it lands
+    const keep = dir > 0 ? oldL : oldR;     // and shows the old content meanwhile
+    const fresh = under.innerHTML;
+    under.innerHTML = keep;
+    book.appendChild(leaf);
+    leaf.addEventListener("animationend", () => { under.innerHTML = fresh; leaf.remove(); flipping = false; }, { once: true });
   }
 
-  function boot_seq(s) {
-    const box = $(".tm-boot", sheetCard);
-    if (!box) return Promise.resolve();
-    const pre = $("pre", box);
-    const lines = ["> 建立上行链路 ........ OK", "> 校验军火商凭证 ...... OK", `> 调取档案 ${s.weapon.replace("weapon_", "").toUpperCase()} ... OK`, "> 连接成功。"];
-    return new Promise((done) => {
-      let i = 0;
-      const finish = () => { clearInterval(t); box.classList.add("off"); setTimeout(() => { box.remove(); done(); }, 380); };
-      const t = setInterval(() => { pre.textContent += (i ? "\n" : "") + lines[i]; i += 1; if (i >= lines.length) { clearInterval(t); setTimeout(finish, 260); } }, 170);
-      box.addEventListener("click", finish, { once: true });
-    });
+  function openCover() {
+    const book = $(".bk-book", sheetCard);
+    if (!wide()) { book.classList.add("rise"); return; }
+    const cover = document.createElement("div");
+    cover.className = "bk-cover";
+    cover.innerHTML = `<div class="face front"><div class="bk-cover-in"><span class="bk-cover-top">机密 · 限内部传阅</span><b>军械图鉴</b><span class="bk-cover-sub">COUNTER-STRIKE 2 · 饰品档案</span><span class="bk-cover-no">卷 ${ROMAN[Math.min(9, (rarityRank[current.rarity] ?? 0) + 1)] || "I"}</span></div></div><div class="face backside"></div>`;
+    book.appendChild(cover);
+    cover.addEventListener("animationend", () => cover.remove(), { once: true });
   }
 
   function step(d) {
-    if (!current) return;
+    if (!current || flipping) return;
     const list = listFor(current);
     const i = list.findIndex((x) => x.id === current.id) + d;
     if (i < 0 || i >= list.length) return;
@@ -456,59 +471,36 @@
     openSheet(s, dir || 0);
   }
 
-  // swipe between offers
   let dustStop = null;
   function bindStage() {
-    const page = $(".tm-page", sheetCard);
-    if (!page) return;
+    const book = $(".bk-book", sheetCard);
+    if (!book) return;
     let sx = 0, sy = 0, t0 = 0, down = false;
-    page.addEventListener("pointerdown", (e) => { if (e.target.closest("button, a")) return; down = true; sx = e.clientX; sy = e.clientY; t0 = Date.now(); });
-    page.addEventListener("pointerup", (e) => {
+    book.addEventListener("pointerdown", (e) => { if (e.target.closest("button, a")) return; down = true; sx = e.clientX; sy = e.clientY; t0 = Date.now(); });
+    book.addEventListener("pointerup", (e) => {
       if (!down) return; down = false;
       const dx = e.clientX - sx, dy = e.clientY - sy;
       if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - t0 < 600) step(dx < 0 ? 1 : -1);
     });
-    page.addEventListener("pointercancel", () => { down = false; });
-  }
-
-  // two terminal skins: 创世 (Genesis) and 毁灭之手 (Dead Hand)
-  const TERMINALS = { genesis: "创世终端机", deadhand: "毁灭之手终端机" };
-  let tmPref = "genesis";
-  try { tmPref = localStorage.getItem("cs-vault-terminal") || "genesis"; } catch (e) {}
-  let forced = null;
-  function openSheetForced(s, tm) { forced = { id: s.id, tm }; openSheet(s, 0); }
-  function themeFor(s) {
-    if (forced && forced.id === s.id) return forced.tm;
-    forced = null;
-    if (s.coll.includes("collection-set-community-37")) return "deadhand";
-    if (s.coll.includes("collection-set-community-36")) return "genesis";
-    return tmPref;
+    book.addEventListener("pointercancel", () => { down = false; });
   }
 
   function closeSheet(fromRoute) {
     if (sheet.hidden) return;
     sheet.hidden = true;
-    sheet.classList.remove("lit");
     current = null;
-    if (dustStop) dustStop();
+    flipping = false;
     document.body.style.overflow = "";
     if (!fromRoute) location.hash = lastListHash;
   }
 
   sheet.addEventListener("click", (e) => {
     const g = e.target.closest("[data-go]");
-    if (g) { go(byId.get(g.dataset.go)); return; }
-    if (e.target.closest("[data-tm-swap]")) {
-      tmPref = sheet.dataset.tm === "genesis" ? "deadhand" : "genesis";
-      try { localStorage.setItem("cs-vault-terminal", tmPref); } catch (err) {}
-      const keep = current; current = null; sheet.dataset.tm = tmPref;
-      // re-render the same page in the other terminal without the boot sequence
-      openSheetForced(keep, tmPref); return;
-    }
+    if (g) { go(byId.get(g.dataset.go), 1); return; }
     const st = e.target.closest("[data-step]");
     if (st) { step(+st.dataset.step); return; }
     if (e.target.closest("[data-close]")) closeSheet();
-    else if (e.target.closest(".tm-list a")) { sheet.hidden = true; sheet.classList.remove("lit"); if (dustStop) dustStop(); document.body.style.overflow = ""; }
+    else if (e.target.closest(".bk-src a")) { sheet.hidden = true; current = null; document.body.style.overflow = ""; }
   });
   addEventListener("keydown", (e) => {
     if (sheet.hidden) return;
