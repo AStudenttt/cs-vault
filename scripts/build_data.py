@@ -375,20 +375,6 @@ def build(with_colors):
         for c in x.get("collections") or []:
             collections[c["id"]] = {"id": c["id"], "name": c["name"], "img": c.get("image", "")}
 
-    skin_ids = {s["id"] for s in skins}
-    crates = []
-    for c in crates_zh:
-        contains = [i["id"] for i in c.get("contains") or [] if i["id"] in skin_ids]
-        rare = [i["id"] for i in c.get("contains_rare") or [] if i["id"] in skin_ids]
-        if not contains:
-            continue  # sticker capsules, music kits etc. are for later sections
-        crates.append({
-            "id": c["id"], "name": c["name"], "en": crates_en.get(c["id"], {}).get("name", ""),
-            "type": c.get("type") or "", "date": c.get("first_sale_date") or "",
-            "img": c.get("image", ""), "items": contains, "rare": rare,
-        })
-    crates.sort(key=lambda c: c["date"] or "0000", reverse=True)
-
     rarities = {}
     for x in zh:
         r = x.get("rarity") or {}
@@ -401,6 +387,56 @@ def build(with_colors):
 
     os.makedirs(OUT, exist_ok=True)
     extra_chapters, extra_rar = build_extras()
+
+    # Every container: weapon cases, souvenir packages, sticker/autograph capsules, music kit boxes,
+    # patch packs, pin capsules and graffiti boxes. Contents point at skins or at the other item chapters.
+    skin_ids = {sk["id"] for sk in skins}
+    where = {}                       # extra item id -> (chapter, section)
+    graffiti_by_def = {}
+    for ch in extra_chapters:
+        for sct in ch["sections"]:
+            for it in sct["items"]:
+                where[it["id"]] = (ch["key"], sct["id"])
+                if ch["key"] == "graffiti":
+                    graffiti_by_def[it["id"].split("-")[1].split("_")[0]] = it["id"]
+
+    def resolve_id(i):
+        if i in skin_ids or i in where:
+            return i
+        if i.endswith("_st") and i[:-3] in where:          # StatTrak music kits share the base entry
+            return i[:-3]
+        if i.startswith("graffiti-"):
+            return graffiti_by_def.get(i.split("-")[1].split("_")[0])
+        return None
+
+    crates = []
+    for c in crates_zh:
+        contains, seen = [], set()
+        for i in c.get("contains") or []:
+            r = resolve_id(i["id"])
+            if r and r not in seen:
+                seen.add(r)
+                contains.append(r)
+        rare = [i["id"] for i in c.get("contains_rare") or [] if i["id"] in skin_ids]
+        if not contains:
+            continue
+        secs = sorted({where[i][1] for i in contains if i in where and where[i][0] == "stickers"})
+        crates.append({
+            "id": c["id"], "name": c["name"], "en": crates_en.get(c["id"], {}).get("name", ""),
+            "type": c.get("type") or "", "date": c.get("first_sale_date") or "",
+            "img": c.get("image", ""), "items": contains, "rare": rare, **({"secs": secs} if secs else {}),
+        })
+        for i in contains:                                  # an item remembers the first container it comes in
+            if i in where:
+                for ch in extra_chapters:
+                    if ch["key"] == where[i][0]:
+                        for sct in ch["sections"]:
+                            if sct["id"] == where[i][1]:
+                                for it in sct["items"]:
+                                    if it["id"] == i and "cr" not in it:
+                                        it["cr"] = c["id"]
+    crates.sort(key=lambda c: c["date"] or "0000", reverse=True)
+    print("containers:", len(crates))
     # stickers are large, so each section ships in its own file and loads when first opened
     small = []
     for ch in extra_chapters:

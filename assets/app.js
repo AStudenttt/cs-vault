@@ -21,6 +21,19 @@
   const FS = [null, "纯色", "水转印", "喷漆", "电镀", "多色电镀", "电镀喷绘", "自定义涂装", "古铜", "枪匠", "表面淬火"];
   const FS_EN = [null, "Solid Color", "Hydrographic", "Spray-Paint", "Anodized", "Anodized Multicolored", "Anodized Airbrushed", "Custom Paint Job", "Patina", "Gunsmith", "Case Hardening"];
   const FS_ORDER = [1, 4, 5, 6, 2, 3, 8, 10, 9, 7];
+  // container types, in the order the appendix lists them
+  const CTYPES = [
+    ["case", "武器箱", (c) => c.type === "Case"],
+    ["sticker", "印花胶囊", (c) => c.type === "Sticker Capsule"],
+    ["autograph", "签名胶囊", (c) => c.type === "Autograph Capsule"],
+    ["souvenir", "纪念包", (c) => c.type === "Souvenir" || c.type === "Souvenir Highlight"],
+    ["music", "音乐盒集", (c) => c.type === "Music Kit Box"],
+    ["patch", "布章包", (c) => c.type === "Patch Capsule"],
+    ["pin", "胸章胶囊", (c) => c.type === "Pins"],
+    ["graffiti", "涂鸦箱", (c) => c.type === "Graffiti"],
+    ["other", "终端机与其他", (c) => !c.type],
+  ];
+  const ctypeOf = (c) => CTYPES.find((t) => t[2](c)) || CTYPES[CTYPES.length - 1];
   const fsTag = (n, href, on, attrs = "") => `<a class="bk-fs${on ? " on" : ""}" href="${href}"${on ? ' aria-current="true"' : ""} ${attrs}><span class="fs-${n}">${FS[n]}</span></a>`;
   const FX = { Gold: "金色", Holo: "全息", Foil: "闪亮", Glitter: "闪耀", Embroidered: "刺绣", Lenticular: "透镜" };
   const X_STAMP = ["普通", "普通", "限制", "机密", "绝密", "绝密", "违禁"];
@@ -182,7 +195,7 @@
         <span class="bk-cover-top">机密 · 限内部传阅</span>
         <b>军械图鉴</b>
         <span class="bk-cover-sub">COUNTER-STRIKE 2 · 饰品档案</span>
-        <span class="bk-cover-stats">涂装 ${skins.length.toLocaleString()} 件 · 饰品 ${xTotal().toLocaleString()} 件 · ${crates.length} 个武器箱</span>
+        <span class="bk-cover-stats">涂装 ${skins.length.toLocaleString()} 件 · 饰品 ${xTotal().toLocaleString()} 件 · ${crates.length} 个箱子与胶囊</span>
       </span>
       <span class="bk-cover-open">翻开 ▸</span>
     </button>`;
@@ -211,7 +224,7 @@
       <nav class="bk-toc" aria-label="目录"><div class="bk-toc-part">上编 · 武器涂装</div>${rows}
         ${xrows ? `<div class="bk-toc-part">下编 · 饰品与收藏</div>${xrows}` : ""}
         <div class="bk-toc-part">附　录</div>
-        <a class="bk-toc-row" href="#/cases"><span class="no">附录甲</span><span class="t">武器箱<small>CASES</small></span><span class="dots"></span><span class="n">${crates.length}</span></a>
+        <a class="bk-toc-row" href="#/cases"><span class="no">附录甲</span><span class="t">箱子与胶囊<small>CONTAINERS</small></span><span class="dots"></span><span class="n">${crates.length}</span></a>
         <a class="bk-toc-row" href="#/colls"><span class="no">附录乙</span><span class="t">收藏品<small>COLLECTIONS</small></span><span class="dots"></span><span class="n">${Object.keys(meta.collections).length}</span></a>
       </nav>${folio("ii")}`;
     return { left, right };
@@ -284,7 +297,8 @@
       it.sub && ["所属", esc(it.sub)],
       it.tints > 1 && ["颜色", `${it.tints} 种`],
       it.st && ["附加", "有 StatTrak™ 版本"],
-      it.src && ["来源", `<a href="#/by/src/${enc(it.src)}/0">${esc(it.src)} ›</a>`],
+      (it.cr && crateById.get(it.cr)) ? ["出自", `<a href="#/case/${enc(it.cr)}/0">${esc(crateById.get(it.cr).name)} ›</a>`]
+        : it.src && ["来源", `<a href="#/by/src/${enc(it.src)}/0">${esc(it.src)} ›</a>`],
     ].filter(Boolean);
     const sellable = it.en && !(ch.key === "medals" && !["胸章", "纪念品代币", "观众通行证"].includes(it.tp));
     const n = idx + 1;
@@ -546,7 +560,7 @@
       ${s.lore ? `<p class="bk-lore">“${esc(s.lore)}”</p>` : ""}
       <div class="bk-sec"><h3>出处与索引</h3>
         <div class="bk-xref">
-          ${cratesOf.map((c) => `<a href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span><small>武器箱</small>${esc(c.name)}</span></a>`).join("")}
+          ${cratesOf.map((c) => `<a href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span><small>${ctypeOf(c)[1]}</small>${esc(c.name)}</span></a>`).join("")}
           ${colls.map((c) => `<a href="#/coll/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span><small>收藏品</small>${esc(c.name)}</span></a>`).join("")}
           <a href="#/w/${enc(s.weapon)}/0"><span class="th"><img loading="lazy" alt="" src="${esc(img(s.img, 128))}"></span><span><small>武器</small>全部 ${esc(s.weaponName)}</span></a>
         </div>
@@ -688,22 +702,50 @@
       return sheetView([3, 95, arg, v], null, list, `#/by/${arg}/${enc(v)}`, page(parts[3]), v, `${label} · ${list.length} 件${all ? "" : " · 检索中…"}`, `按${label}`, [[label, null], [v, null]]);
     }
     if (kind === "cases") {
-      const sp = listSpread({ title: "附录甲 · 武器箱", en: "CASES", rows: crates.map(caseRow), base: "#/cases", page: page(arg) });
-      return { kind: "list", order: [2, 90, sp.page], tab: "cases", crumbs: [["附录甲 · 武器箱", null]], ...sp };
+      const t = CTYPES.find((x) => x[0] === arg);
+      if (t) {
+        const list = crates.filter(t[2]);
+        const sp = listSpread({ title: `附录甲 · ${t[1]}`, en: "CONTAINERS", rows: list.map(caseRow), base: `#/cases/${t[0]}`, page: page(arg2) });
+        return { kind: "list", order: [2, 90, CTYPES.indexOf(t), sp.page], tab: "cases", crumbs: [["箱子与胶囊", "#/cases"], [t[1], null]], ...sp };
+      }
+      const groups = CTYPES.map((x) => [x, crates.filter(x[2])]).filter(([, l]) => l.length);
+      const left = `${run("附录甲", "CONTAINERS")}
+        <div class="bk-chapter"><span class="bk-ch-no">附录甲</span><h2 class="bk-ch-title long">箱子与胶囊</h2><span class="bk-ch-en">CONTAINERS</span>
+        <p class="bk-p">收录游戏中全部可开启的容器 ${crates.length} 个：武器箱、纪念包、印花与签名胶囊、音乐盒集、布章包、胸章胶囊、涂鸦箱，以及终端机。按类型分节，新的在前；点开任意一个，可看到里面的全部物品。</p></div>
+        ${folio("附·1")}`;
+      const right = `${run("附录甲", "分节索引")}<h2 class="bk-h">分节索引</h2>
+        <nav class="bk-index">${groups.map(([x, l]) => `<a class="bk-idx-row" href="#/cases/${x[0]}/0"><span class="th">${l[0].img ? `<img loading="lazy" alt="" src="${esc(img(l[0].img, 128))}">` : ""}</span><span class="t">${x[1]}<small>最新：${esc(l[0].name)}</small></span><span class="dots"></span><span class="n">${l.length}</span></a>`).join("")}</nav>
+        ${folio("附·2")}`;
+      return { kind: "list", order: [2, 90], tab: "cases", crumbs: [["箱子与胶囊", null]], left, right };
     }
     if (kind === "colls") {
       const counts = {};
       skins.forEach((s) => s.coll.forEach((c) => { counts[c] = (counts[c] || 0) + 1; }));
       const rows = Object.values(meta.collections).sort((a, b) => a.name.localeCompare(b.name, "zh")).map((c) => collRow(c, counts[c.id] || 0));
+      // agent and charm collections live in their own chapters; they are listed here too
+      const xs = new Map();
+      ["agents", "charms"].forEach((k) => { const ch = xChapter(k); if (ch) ch.sections.forEach((sec) => (sec.items || []).forEach((it) => { if (it.src) { if (!xs.has(it.src)) xs.set(it.src, []); xs.get(it.src).push(it); } })); });
+      [...xs.entries()].sort((a, b) => a[0].localeCompare(b[0], "zh")).forEach(([name, items]) => {
+        const top = items.slice().sort((a, b) => xRar(b).rank - xRar(a).rank)[0];
+        rows.push(`<a class="bk-idx-row" href="#/by/src/${enc(name)}/0"><span class="th" style="--rc:${xRar(top).color}">${top.img ? `<img loading="lazy" alt="" src="${esc(img(top.img, 128))}">` : ""}</span><span class="t">${esc(name)}<small>${top._ch === "agents" ? "探员" : "挂件"}</small></span><span class="dots"></span><span class="n">${items.length}</span></a>`);
+      });
       const sp = listSpread({ title: "附录乙 · 收藏品", en: "COLLECTIONS", rows, base: "#/colls", page: page(arg) });
       return { kind: "list", order: [2, 91, sp.page], tab: "colls", crumbs: [["附录乙 · 收藏品", null]], ...sp };
     }
     if (kind === "case") {
       const c = crateById.get(arg);
       if (!c) return resolve("#/cases");
-      const items = c.items.map((id) => byId.get(id)).filter(Boolean).sort(byRarity);
+      const t = ctypeOf(c);
+      const crumbs = [["箱子与胶囊", "#/cases"], [t[1], `#/cases/${t[0]}/0`], [c.name, null]];
+      // sticker capsules need their sticker sections loaded first
+      const stk = xChapter("stickers");
+      const waiting = (c.secs || []).map((id) => stk && stk.sections.find((x) => x.id === id)).filter((sec) => sec && !ensureSection(stk, sec));
+      if (waiting.length) return { kind: "loading", order: [3, 90, c.id], tab: "cases", crumbs, ...loadingSpread(c.name) };
+      const got = c.items.map((id) => byId.get(id) || xById.get(id)).filter(Boolean);
+      const sk = got.filter((x) => x.weapon).sort(byRarity), ex = got.filter((x) => !x.weapon).sort((a, b) => xRar(b).rank - xRar(a).rank);
       const rare = c.rare.map((id) => byId.get(id)).filter(Boolean).sort(byRarity);
-      return sheetView([3, 90, c.id], "cases", items.concat(rare), `#/case/${enc(c.id)}`, page(arg2), c.name, `${c.date || ""} · ${items.length} 件${rare.length ? ` + ★ ${rare.length}` : ""}`, c.name, [["武器箱", "#/cases"], [c.name, null]]);
+      const list = sk.concat(ex, rare);
+      return sheetView([3, 90, c.id], "cases", list, `#/case/${enc(c.id)}`, page(arg2), c.name, `${t[1]}${c.date ? " · " + c.date : ""} · ${got.length} 件${rare.length ? ` + ★ ${rare.length}` : ""}`, c.name, crumbs);
     }
     if (kind === "coll") {
       const c = meta.collections[arg];

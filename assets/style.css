@@ -370,3 +370,10 @@ a { color: inherit; }
   .bk-leaf, .bk-cover-leaf { display: none; }
   .bk-book, .bk-spread, .bk-right, .bk-cover-open { animation: none !important; transition: none !important; }
 }
+
+.bk-ch-title.long { font-size: clamp(2.4rem, 5vw, 4rem); white-space: nowrap; }
+.bk-toc-row .t, .bk-idx-row .t { white-space: nowrap; overflow: hidden; flex: 0 1 auto; }
+.bk-toc-row .t small, .bk-idx-row .t small { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bk-sheet-head { flex-wrap: nowrap; min-width: 0; }
+.bk-sheet-head .bk-h { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.bk-sheet-head span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 2 auto; }
