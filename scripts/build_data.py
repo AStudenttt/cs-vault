@@ -83,9 +83,10 @@ def main_color(img_bytes):
         h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
         total += 1
         if s < 0.22 or v < 0.16:
+            # neutral pixels: light ones read as white, mid ones as grey/silver, dark ones as black
             if v < 0.3:
                 neutral["black"] += 1
-            elif v > 0.75 and s < 0.15:
+            elif v > 0.66:
                 neutral["white"] += 1
             else:
                 neutral["gray"] += 1
@@ -99,13 +100,19 @@ def main_color(img_bytes):
     if not total:
         return None
     chroma = sum(weights.values())
+    out = []
     if weights and chroma / total > 0.12:
         ranked = sorted(weights.items(), key=lambda kv: -kv[1])
         out = [ranked[0][0]]
         if len(ranked) > 1 and ranked[1][1] > ranked[0][1] * 0.45:
             out.append(ranked[1][0])
-        return out
-    return [max(neutral.items(), key=lambda kv: kv[1])[0]]
+    # a neutral that covers a good part of the item also counts (a white AWP with red details is both)
+    for name, n in sorted(neutral.items(), key=lambda kv: -kv[1]):
+        if len(out) >= 3:
+            break
+        if (not out and n) or n / total >= 0.3:
+            out.append(name)
+    return out or None
 
 
 def compute_colors(skins):

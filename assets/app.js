@@ -308,14 +308,23 @@
   const after = (en) => { const p = (en || "").split("|").map((x) => x.trim()); return p.length > 1 ? p.slice(1).join(" | ") : en || ""; };
 
   // ----- colour kit: a knife, gloves, rifle, sniper rifle and pistol in one colour -----
+  // When a slot has few items in the chosen colour, neighbouring colours fill in and are marked 近似.
+  const NEAR = { white: ["gray"], gray: ["white", "black"], black: ["gray"], red: ["pink", "orange"], orange: ["red", "yellow", "brown"],
+    yellow: ["orange"], green: ["cyan"], cyan: ["blue", "green"], blue: ["cyan", "purple"], purple: ["pink", "blue"], pink: ["red", "purple"], brown: ["orange"] };
   function kitCandidates(color) {
     return KIT_SLOTS.map((slot) => {
       const seen = new Set();
-      return skins.filter((s) => slot.test(s) && s.colors && s.colors.includes(color))
-        .sort((a, b) => ((a.colors[0] === color ? 0 : 1) - (b.colors[0] === color ? 0 : 1)) || byRarity(a, b))
-        .filter((s) => !seen.has(s.name) && seen.add(s.name));
+      const pool = skins.filter((s) => slot.test(s) && s.colors);
+      const exact = pool.filter((s) => s.colors.includes(color))
+        .sort((a, b) => ((a.colors[0] === color ? 0 : 1) - (b.colors[0] === color ? 0 : 1)) || byRarity(a, b));
+      const near = exact.length >= 4 ? [] : pool.filter((s) => !s.colors.includes(color) && s.colors.some((c) => NEAR[color].includes(c)))
+        .sort((a, b) => ((NEAR[color].includes(a.colors[0]) ? 0 : 1) - (NEAR[color].includes(b.colors[0]) ? 0 : 1)) || byRarity(a, b));
+      near.forEach((s) => nearSet.add(color + s.id));
+      return exact.concat(near).filter((s) => !seen.has(s.name) && seen.add(s.name));
     });
   }
+  const nearSet = new Set();
+  const isNear = (color, s) => nearSet.has(color + s.id);
   function kitSpread(color, picksArg) {
     const cands = kitCandidates(color);
     const given = (picksArg || "").split(",").map((id) => byId.get(id));
@@ -330,15 +339,15 @@
     const plate = (s, i) => `<a class="bk-kit-plate${i < 2 ? " big" : ""}" ${s ? `href="#/skin/${enc(s.id)}"` : ""} style="--rc:${s ? rc(s) : "#8c949c"}">
         <span class="bk-kit-slot">${KIT_SLOTS[i].name}</span>
         <span class="bk-cell-photo">${s && s.img ? `<img alt="" src="${esc(img(s.img, 360))}">` : `<span class="bk-noimg">缺</span>`}</span>
-        <span class="bk-cell-cap"><i></i><span>${s ? esc(s.weaponName) + " · " + esc(shortName(s)) : "暂无此色"}</span></span></a>`;
+        <span class="bk-cell-cap"><i></i><span>${s ? esc(s.weaponName) + " · " + esc(shortName(s)) : "暂无此色"}</span>${s && isNear(color, s) ? "<small>近似</small>" : ""}</span></a>`;
     const left = `${run("配色套装", `${cname}色系`)}
       <div class="bk-sheet-head"><h2 class="bk-h">${cname}色套装</h2><a class="bk-same" data-replace href="${shuffle}">换一套 ↻</a></div>
       <div class="bk-filter"><span class="bk-filter-h">主色</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/kit/${c[0]}`, c[0] === color, "data-replace")).join("")}</div></div>
       <div class="bk-kit">${picks.map(plate).join("")}</div>
       ${folio("套·1")}`;
     const right = `${run("备选", "点一件换上")}
-      ${KIT_SLOTS.map((slot, i) => `<div class="bk-sec"><h3>${slot.name} · ${cands[i].length} 件可选</h3>
-        <div class="bk-strip">${cands[i].slice(0, 10).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}</span></a>`).join("") || `<span class="bk-empty">这个颜色暂时没有</span>`}</div></div>`).join("")}
+      ${KIT_SLOTS.map((slot, i) => { const ex = cands[i].filter((x) => !isNear(color, x)).length; return `<div class="bk-sec"><h3>${slot.name} · ${ex} 件${cname}色${cands[i].length > ex ? `，另有 ${cands[i].length - ex} 件近似色` : ""}</h3>
+        <div class="bk-strip">${cands[i].slice(0, 10).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}${isNear(color, s) ? " · 近似" : ""}</span></a>`).join("") || `<span class="bk-empty">这个颜色暂时没有</span>`}</div></div>`; }).join("")}
       <p class="bk-src"><a href="#/color/${color}/all/0">查看全部${cname}色系 ›</a></p>
       ${folio("套·2")}`;
     return { left, right };
