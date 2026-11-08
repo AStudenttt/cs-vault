@@ -23,7 +23,6 @@
   ];
   const WEAR_SHORT = ["崭新", "略磨", "久经", "破损", "战痕"];
   const STAMPS = { 1: "普通", 2: "普通", 3: "限制", 4: "限制", 5: "机密", 6: "绝密", 7: "绝密", 8: "违禁", 9: "违禁" };
-  const PER_PAGE = 12;        // photos per page on an index sheet
   const ROWS_PER_PAGE = 13;   // rows per page on a list (cases, collections)
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const wideQuery = matchMedia("(min-width: 1000px) and (min-aspect-ratio: 1/1)");
@@ -72,6 +71,14 @@
     shell();
     addEventListener("hashchange", () => route(false));
     if (wideQuery.addEventListener) wideQuery.addEventListener("change", () => route(true));
+    let shapeKey = "", rt = 0;
+    addEventListener("resize", () => {
+      clearTimeout(rt);
+      rt = setTimeout(() => {
+        const k = JSON.stringify([gridShape(false), gridShape(true)]);
+        if (k !== shapeKey) { shapeKey = k; if (state && state.kind === "sheet") route(true); }
+      }, 250);
+    });
     route(true);
   }
 
@@ -157,20 +164,39 @@
     return { left, right };
   }
 
-  function sheetSpread({ title, sub, list, base, page, runLabel, extra }) {
+  // How many photos fit on one page: aim for plates about 240px wide with 4:3 photos,
+  // sized from the real page so both pages always hold the same number of equal cells.
+  function gridShape(tall) {
+    if (!wideQuery.matches) return { cols: innerWidth < 560 ? 2 : 3, rows: innerWidth < 560 ? 4 : 3 };
+    const pg = $(".bk-left", app);
+    const w = (pg ? pg.clientWidth : 560) - 76;                                   // side padding
+    const h = (pg ? pg.clientHeight : 600) - 24 - 30 - 24 - (tall ? 84 : 52) - 26 - 14 * 3; // padding, running head, header, folio, gaps
+    let cols = 4;
+    while (cols > 2 && (w - 16 * (cols - 1)) / cols < 170) cols -= 1;   // plates at least 170px wide
+    const cw = (w - 16 * (cols - 1)) / cols;
+    const rows = Math.max(1, Math.min(4, Math.floor((h + 14) / (cw * 0.5 + 34 + 14))));
+    return { cols, rows };
+  }
+
+  function sheetSpread({ title, sub, list, base, page, runLabel, extra, extraRight }) {
+    const shape = gridShape(!!extra);
+    const PER_PAGE = shape.cols * shape.rows;
+    const gstyle = ` style="--cols:${shape.cols};--rows:${shape.rows}"`;
     const per = PER_PAGE * 2;
     const pages = Math.max(1, Math.ceil(list.length / per));
     const p = Math.min(page, pages - 1);
     const from = p * per;
     const a = list.slice(from, from + PER_PAGE), b = list.slice(from + PER_PAGE, from + per);
     const range = list.length ? `第 ${from + 1}–${Math.min(list.length, from + per)} 件 / 共 ${list.length}` : "无结果";
+    // Both pages get a header block of the same height, so the two grids line up cell for cell.
+    const tall = extra ? " tall" : "";
     const left = `${run(esc(runLabel || title), "图版索引")}
-      <div class="bk-sheet-head"><h2 class="bk-h">${esc(title)}</h2>${sub ? `<span>${esc(sub)}</span>` : ""}</div>
-      ${extra || ""}
-      ${list.length ? `<div class="bk-grid">${a.map(photoCell).join("")}</div>` : `<p class="bk-empty">没有查到。可以试试武器名、皮肤名或英文名，比如“AK 火神”或“Doppler”。</p>`}
+      <div class="bk-sheet-top${tall}"><div class="bk-sheet-head"><h2 class="bk-h">${esc(title)}</h2>${sub ? `<span>${esc(sub)}</span>` : ""}</div>${extra || ""}</div>
+      ${list.length ? `<div class="bk-grid"${gstyle}>${a.map(photoCell).join("")}</div>` : `<p class="bk-empty">没有查到。可以试试武器名、皮肤名或英文名，比如“AK 火神”或“Doppler”。</p>`}
       ${folio(p * 2 + 1)}`;
     const right = `${run(range, pages > 1 ? `${p + 1} / ${pages} 页` : "")}
-      <div class="bk-grid">${b.map(photoCell).join("")}</div>
+      ${extraRight ? `<div class="bk-sheet-top${tall} side">${extraRight}</div>` : `<div class="bk-sheet-top${tall} mirror" aria-hidden="true"><span>续 · ${esc(title)}</span></div>`}
+      <div class="bk-grid"${gstyle}>${b.map(photoCell).join("")}</div>
       ${!b.length && list.length ? `<p class="bk-end">— 本节完 —</p>` : ""}
       ${folio(p * 2 + 2)}`;
     return { left, right, rightEmpty: !b.length, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
@@ -268,8 +294,8 @@
   let fromList = null;   // { list, crumbs, key } of the last index sheet, used to page through items
   let state = null;
 
-  function sheetView(order, tab, list, base, page, title, sub, runLabel, crumbs, extra) {
-    const sp = sheetSpread({ title, sub, list, base, page, runLabel, extra });
+  function sheetView(order, tab, list, base, page, title, sub, runLabel, crumbs, extra, extraRight) {
+    const sp = sheetSpread({ title, sub, list, base, page, runLabel, extra, extraRight });
     const here = `${base}/${sp.page}`;
     return { kind: "sheet", order: [...order, sp.page], tab, list, crumbs, back: here, key: base, ...sp };
   }
@@ -307,11 +333,12 @@
       const name = ids.map((c) => colorById[c][1]).join(" + ");
       const href = (cs, ct) => `#/color/${cs.join("+")}/${enc(ct)}/0`;
       const toggle = (c) => (ids.includes(c) ? ids.filter((x) => x !== c) : [...ids, c].slice(-3));
-      const extra = `<div class="bk-filter">
-          <div class="bk-sws">${COLORS.map((c) => { const t = toggle(c[0]); return t.length ? swatch(c[0], href(t, cat), ids.includes(c[0]), "data-replace") : swatch(c[0], href(ids, cat), true, "data-replace"); }).join("")}</div>
+      const extra = `<div class="bk-filter"><span class="bk-filter-h">颜色</span>
+          <div class="bk-sws">${COLORS.map((c) => { const t = toggle(c[0]); return t.length ? swatch(c[0], href(t, cat), ids.includes(c[0]), "data-replace") : swatch(c[0], href(ids, cat), true, "data-replace"); }).join("")}</div></div>`;
+      const extraRight = `<div class="bk-filter"><span class="bk-filter-h">类别</span>
           <div class="bk-chips"><a data-replace href="${href(ids, "all")}"${cat === "all" ? ' aria-current="true"' : ""}>全部</a>${cats.map((c) => `<a data-replace href="${href(ids, c.name)}"${cat === c.name ? ' aria-current="true"' : ""}>${esc(TAB_SHORT[c.name] || c.name)}</a>`).join("")}</div>
         </div>`;
-      return sheetView([3, 98, ids.join("+"), cat], null, list, `#/color/${ids.join("+")}/${enc(cat)}`, page(parts[3]), `${name}色系`, `${list.length} 件${cat !== "all" ? ` · ${cat}` : ""}`, "按颜色检索", [["按颜色", null], [`${name}色系`, null]], extra);
+      return sheetView([3, 98, ids.join("+"), cat], null, list, `#/color/${ids.join("+")}/${enc(cat)}`, page(parts[3]), `${name}色系`, `${list.length} 件${cat !== "all" ? ` · ${cat}` : ""}`, "按颜色检索", [["按颜色", null], [`${name}色系`, null]], extra, extraRight);
     }
     if (kind === "cases") {
       const sp = listSpread({ title: "附录甲 · 武器箱", en: "CASES", rows: crates.map(caseRow), base: "#/cases", page: page(arg) });
