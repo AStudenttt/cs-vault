@@ -297,6 +297,26 @@ def build_extras():
     return chapters, rar
 
 
+GAME_ITEMS = "https://raw.githubusercontent.com/SteamDatabase/GameTracking-CS2/master/game/csgo/pak01_dir/scripts/items/items_game.txt"
+
+
+def finish_styles():
+    """Finish Style of every paint kit, as shown in the in-game inspect box (1 Solid Color … 10 Case Hardening)."""
+    import re
+    try:
+        txt = get(GAME_ITEMS, timeout=120).decode("utf-8", "ignore")
+    except Exception as e:
+        print("finish styles unavailable:", e, file=sys.stderr)
+        return {}
+    pk = txt[txt.index('"paint_kits"'):]
+    out = {}
+    for m in re.finditer(r'\n\t\t"(\d+)"\s*\n\t\t\{(.*?)\n\t\t\}', pk, re.S):
+        st = re.search(r'"style"\s*"(\d+)"', m.group(2))
+        if st:
+            out[m.group(1)] = int(st.group(1))
+    return out
+
+
 def build(with_colors):
     zh = load("zh-CN", "skins")
     en = {x["id"]: x for x in load("en", "skins")}
@@ -339,6 +359,15 @@ def build(with_colors):
     for sk in skins:
         sk["weapon"] = canon[sk["weaponName"]]
     strip_weapon_blurb(skins)
+    styles = finish_styles()
+    by_id = {x["id"]: x for x in zh}
+    for sk in skins:
+        pi = str(by_id[sk["id"]].get("paint_index") or "")
+        if pi and pi != "0":
+            sk["pi"] = int(pi)
+        if styles.get(pi):
+            sk["fs"] = styles[pi]
+    print("finish styles:", sum(1 for sk in skins if sk.get("fs")), "/", len(skins))
 
     # Collections come embedded in skins; keep a small lookup
     collections = {}

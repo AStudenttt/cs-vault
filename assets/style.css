@@ -255,6 +255,52 @@ a { color: inherit; }
 .bk-links a { font: 400 .78rem var(--type); text-decoration: none; padding: 4px 8px; border: 1px solid var(--ink); background: rgba(255, 255, 255, .3); }
 .bk-links a:hover { background: var(--ink); color: var(--paper); }
 
+
+/* ===== finish styles: the title takes on the look of its finish ===== */
+.bk-fs { display: inline-block; text-decoration: none; font: 800 .8rem var(--zh); padding: 2px 8px; border: 1px solid rgba(29, 34, 25, .45); background: rgba(255, 255, 255, .35); }
+.bk-fs.on, .bk-chips a.bk-fs[aria-current="true"] { background: rgba(255, 255, 255, .7); color: inherit; border-color: var(--red); outline: 2px solid var(--red); outline-offset: 1px; }
+.bk-fs span { white-space: nowrap; }
+.bk-sheet-top .bk-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+.bk-sheet-top .bk-chips::-webkit-scrollbar { display: none; }
+.bk-filter .bk-same { flex: none; white-space: nowrap; margin-left: auto; }
+.bk-filter .bk-chips { flex: 1; min-width: 0; }
+.bk-sheet-top.side { justify-content: flex-start; padding-top: 44px; }
+.bk-fs:hover { border-color: var(--red); }
+.fs-list { flex-wrap: wrap; gap: 5px; }
+.bk-en-small { font: 400 .72rem var(--type); color: var(--ink-2); margin-left: 6px; }
+.bk-form a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--red); text-underline-offset: 3px; }
+.fs-1, .fs-2, .fs-3, .fs-4, .fs-5, .fs-6, .fs-7, .fs-8, .fs-9, .fs-10 { -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+/* 纯色 Solid Color: one flat ink */
+.fs-1 { color: #2d3a2a; }
+/* 水转印 Hydrographic: marbled film */
+.fs-2 { background: repeating-radial-gradient(circle at 30% 40%, #2f3a2b 0 3px, #6f7a5c 3px 5px, #3d4636 5px 8px), #3d4636; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+/* 喷漆 Spray-Paint: stencil letters with overspray */
+.fs-3 { font-family: "Black Ops One", var(--zh); color: #33402c; text-shadow: 0 0 2px rgba(51, 64, 44, .55), 1px 1px 4px rgba(51, 64, 44, .35); letter-spacing: .04em; }
+/* 电镀 Anodized: polished blue steel */
+.fs-4 { background: linear-gradient(180deg, #9fb5d1 0%, #2f4f7a 45%, #16263d 55%, #6f8fb8 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+/* 多色电镀 Anodized Multicolored: oil-slick sheen */
+.fs-5 { background: linear-gradient(100deg, #7a3fb0, #2d6fd0 25%, #1f9c8a 45%, #c9a227 65%, #c0397a 85%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+/* 电镀喷绘 Anodized Airbrushed: soft airbrushed fade */
+.fs-6 { background: linear-gradient(90deg, #d15a9a, #e8b04a 50%, #4f86d6); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; filter: saturate(.9); }
+/* 自定义涂装 Custom Paint Job: printed graphic with an offset colour plate */
+.fs-7 { color: var(--ink); text-shadow: 3px 3px 0 rgba(163, 48, 42, .55); }
+.bk-fs .fs-7 { text-shadow: 1.5px 1.5px 0 rgba(163, 48, 42, .55); }
+/* 古铜 Patina: copper turning to verdigris */
+.fs-8 { background: linear-gradient(160deg, #9a5a2a 0%, #c98a4a 35%, #4f8a76 75%, #2e6152 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+/* 枪匠 Gunsmith: engraved into the metal */
+.fs-9 { color: #8a6a2c; text-shadow: 0 1px 0 rgba(255, 248, 225, .9), 0 -1px 0 rgba(40, 30, 10, .45); }
+/* 表面淬火 Case Hardening: heat-blued with gold flashes */
+.fs-10 { background: linear-gradient(115deg, #1f3f8a, #3a6ac9 30%, #c9a23a 50%, #6a3f9a 75%, #1f3f8a); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+/* reverse index on the item page */
+.bk-xref { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.bk-xref a { display: flex; align-items: center; gap: 10px; text-decoration: none; padding: 6px 8px; background: rgba(255, 255, 255, .35); border: 1px solid rgba(29, 34, 25, .3); min-width: 0; }
+.bk-xref a:hover { border-color: var(--red); }
+.bk-xref .th { flex: none; width: 48px; height: 36px; display: grid; place-items: center; background: #2b2e26; }
+.bk-xref .th img { max-height: 100%; object-fit: contain; }
+.bk-xref span:last-child { display: flex; flex-direction: column; min-width: 0; font: 600 .82rem var(--zh); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-xref small { font: 400 .68rem var(--zh); letter-spacing: .2em; color: var(--ink-2); }
+
 /* ===== turning ===== */
 .bk-leaf, .bk-cover-leaf { position: absolute; top: 10px; bottom: 10px; width: calc(50% - 10px); z-index: 5; transform-style: preserve-3d; pointer-events: none; }
 .bk-leaf.fwd { left: 50%; transform-origin: left center; animation: bk-turn-f .8s cubic-bezier(.45, .05, .25, 1) both; }

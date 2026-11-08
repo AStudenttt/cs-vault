@@ -17,6 +17,11 @@
   const TAB_SHORT = { "微型冲锋枪": "冲锋枪", "重型武器": "重武器" };
   const TAB_CHAR = { "匕首": "匕", "手套": "套", "步枪": "步", "手枪": "手", "微型冲锋枪": "冲", "重型武器": "重", "装备": "装",
     "贴纸": "贴", "挂件": "挂", "探员": "探", "音乐盒": "音", "布章": "布", "勋章": "勋", "涂鸦": "涂", "武器箱": "箱", "收藏品": "藏" };
+  // in-game Finish Style (the inspect box), from items_game.txt
+  const FS = [null, "纯色", "水转印", "喷漆", "电镀", "多色电镀", "电镀喷绘", "自定义涂装", "古铜", "枪匠", "表面淬火"];
+  const FS_EN = [null, "Solid Color", "Hydrographic", "Spray-Paint", "Anodized", "Anodized Multicolored", "Anodized Airbrushed", "Custom Paint Job", "Patina", "Gunsmith", "Case Hardening"];
+  const FS_ORDER = [1, 4, 5, 6, 2, 3, 8, 10, 9, 7];
+  const fsTag = (n, href, on, attrs = "") => `<a class="bk-fs${on ? " on" : ""}" href="${href}"${on ? ' aria-current="true"' : ""} ${attrs}><span class="fs-${n}">${FS[n]}</span></a>`;
   const FX = { Gold: "金色", Holo: "全息", Foil: "闪亮", Glitter: "闪耀", Embroidered: "刺绣", Lenticular: "透镜" };
   const X_STAMP = ["普通", "普通", "限制", "机密", "绝密", "绝密", "违禁"];
   // slots of a colour kit, in the order they are laid out
@@ -195,6 +200,7 @@
         <ul class="bk-ul"><li>点目录中的章节进入，逐级查到单件展品</li><li>点书角或左右滑动翻页，书签和顶部路径可直接跳转</li><li>知道名字的，直接在下方检索</li></ul>
         <form class="bk-search" data-search role="search"><label for="bk-q">检索</label><input id="bk-q" name="q" type="search" placeholder="皮肤、武器或英文名，如 AK 火神" autocomplete="off"><button type="submit">查</button></form>
         ${hasColors ? `<div class="bk-colors"><span class="bk-colors-h">按颜色检索</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/color/${c[0]}/all/0`, false)).join("")}</div><p class="bk-colors-tip">先选主色，结果页里可再加一色或限定类别。<a class="bk-same" href="#/kit/red">按颜色配一套 ›</a></p></div>` : ""}
+        ${skins.some((s) => s.fs) ? `<div class="bk-colors"><span class="bk-colors-h">按涂装风格检索</span><div class="bk-chips fs-list">${FS_ORDER.map((n) => fsTag(n, `#/style/${n}/all/0`, false)).join("")}</div></div>` : ""}
         <div class="bk-imprint"><b>出版说明</b>数据取自 ByMykel/CSGO-API，图片来自 Steam，每周更新。本册与 Valve 无关，Counter-Strike 及相关素材版权归 Valve Corporation 所有。</div>
       </div>${folio("i")}`;
     const row = (i, name, en, n) => `<a class="bk-toc-row" href="#/c/${enc(name)}"><span class="no">第${chapterNo(i)}章</span><span class="t">${esc(name)}<small>${en}</small></span><span class="dots"></span><span class="n">${n}</span></a>`;
@@ -271,14 +277,14 @@
       ["等级", `<span class="bk-rank" style="--rc:${r.color}">${"■".repeat(rank)}${"□".repeat(Math.max(0, 7 - rank))}</span> ${esc(r.name)}`],
       it.tp && ["类型", esc({ Autograph: "选手签名", Team: "战队", Event: "赛事", Other: "常规" }[it.tp] || it.tp)],
       FX[it.fx] && ["特效", esc(FX[it.fx])],
-      it.ev && ["赛事", esc(it.ev)],
-      it.team && ["战队", esc(it.team)],
-      it.pl && ["选手", esc(it.pl)],
+      it.ev && ["赛事", `<a href="#/by/ev/${enc(it.ev)}/0">${esc(it.ev)}</a>`],
+      it.team && ["战队", `<a href="#/by/team/${enc(it.team)}/0">${esc(it.team)} 的全部饰品 ›</a>`],
+      it.pl && ["选手", `<a href="#/by/pl/${enc(it.pl)}/0">${esc(it.pl)} 的全部签名 ›</a>`],
       it.side && ["阵营", esc(it.side === "CT" ? "反恐精英（CT）" : "恐怖分子（T）")],
       it.sub && ["所属", esc(it.sub)],
       it.tints > 1 && ["颜色", `${it.tints} 种`],
       it.st && ["附加", "有 StatTrak™ 版本"],
-      it.src && ["来源", esc(it.src)],
+      it.src && ["来源", `<a href="#/by/src/${enc(it.src)}/0">${esc(it.src)} ›</a>`],
     ].filter(Boolean);
     const sellable = it.en && !(ch.key === "medals" && !["胸章", "纪念品代币", "观众通行证"].includes(it.tp));
     const n = idx + 1;
@@ -311,16 +317,17 @@
   // When a slot has few items in the chosen colour, neighbouring colours fill in and are marked 近似.
   const NEAR = { white: ["gray"], gray: ["white", "black"], black: ["gray"], red: ["pink", "orange"], orange: ["red", "yellow", "brown"],
     yellow: ["orange"], green: ["cyan"], cyan: ["blue", "green"], blue: ["cyan", "purple"], purple: ["pink", "blue"], pink: ["red", "purple"], brown: ["orange"] };
-  function kitCandidates(color) {
+  function kitCandidates(color, fs, ck) {
     return KIT_SLOTS.map((slot) => {
       const seen = new Set();
-      const pool = skins.filter((s) => slot.test(s) && s.colors);
+      // gloves have no finish style, so a style only narrows the other four slots
+      const pool = skins.filter((s) => slot.test(s) && s.colors && (!fs || slot.key === "gloves" || s.fs === fs));
       const ref = [[colorById[color][2], 1]];
       const purity = (s) => (s.pal ? palDist(s.pal.slice(0, 1), ref) : 50) + (s.colors[0] === color ? 0 : 25);
       const exact = pool.filter((s) => s.colors.includes(color)).sort((a, b) => (purity(a) - purity(b)) || byRarity(a, b));
       const near = exact.length >= 4 ? [] : pool.filter((s) => !s.colors.includes(color) && s.colors.some((c) => NEAR[color].includes(c)))
         .sort((a, b) => ((NEAR[color].includes(a.colors[0]) ? 0 : 1) - (NEAR[color].includes(b.colors[0]) ? 0 : 1)) || byRarity(a, b));
-      near.forEach((s) => nearSet.add(color + s.id));
+      near.forEach((s) => nearSet.add(ck + s.id));
       return exact.concat(near).filter((s) => !seen.has(s.name) && seen.add(s.name));
     });
   }
@@ -359,8 +366,11 @@
     return score / chosen.length - (rarityRank[s.rarity] || 0) * 1.5;
   }
 
-  function kitSpread(color, picksArg, pickSlot, pickPage) {
-    const cands = kitCandidates(color);
+  function kitSpread(key, picksArg, pickSlot, pickPage) {
+    const [color, fsRaw] = String(key).split(".");
+    const fs = FS[+fsRaw] ? +fsRaw : 0;
+    const ck = fs ? `${color}.${fs}` : color;
+    const cands = kitCandidates(color, fs, ck);
     const given = (picksArg || "").split(",").map((id) => byId.get(id));
     // Fill slots in order; each new piece is matched against the pieces already chosen.
     const picks = [];
@@ -368,7 +378,7 @@
       const g = given.find((s) => s && slot.test(s));
       if (g) { picks[i] = g; return; }
       const chosen = picks.filter(Boolean).concat(given.filter((x) => x && !picks.includes(x)));
-      const exact = cands[i].filter((s) => !isNear(color, s));
+      const exact = cands[i].filter((s) => !isNear(ck, s));
       const pool = exact.length ? exact : cands[i];
       picks[i] = pool.slice().sort((a, b) => matchScore(a, chosen) - matchScore(b, chosen))[0] || null;
     });
@@ -376,8 +386,8 @@
     const sameSet = (s) => anchors.some((x) => x !== s && finish(x) === finish(s));
     const idsOf = (arr) => arr.map((s) => (s ? s.id : "")).join(",");
     // choosing a new knife re-matches the rest; any other swap keeps the kit as it is
-    const hrefWith = (i, s) => { if (i === 0) return `#/kit/${color}/${s.id}`; const a = picks.slice(); a[i] = s; return `#/kit/${color}/${idsOf(a)}`; };
-    const k0 = cands[0].filter((s) => !isNear(color, s));
+    const hrefWith = (i, s) => { if (i === 0) return `#/kit/${ck}/${s.id}`; const a = picks.slice(); a[i] = s; return `#/kit/${ck}/${idsOf(a)}`; };
+    const k0 = cands[0].filter((s) => !isNear(ck, s));
     // a new kit: any knife in this colour, then each other piece drawn at random from its six best matches
     const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
     const fresh = [];
@@ -386,17 +396,17 @@
     if (k0.length) fresh[0] = rand(k0.filter(notNow(0)).length ? k0.filter(notNow(0)) : k0);
     KIT_SLOTS.forEach((slot, i) => {
       if (i === 0) return;
-      const exact = cands[i].filter((s) => !isNear(color, s));
+      const exact = cands[i].filter((s) => !isNear(ck, s));
       const pool = exact.length >= 4 ? exact : cands[i];   // few in this colour: near colours join the draw
       const chosen = fresh.filter(Boolean);
       const ranked = pool.slice().sort((a, b) => matchScore(a, chosen) - matchScore(b, chosen));
       const top = ranked.filter(notNow(i)).slice(0, 10);
       fresh[i] = rand(top.length ? top : ranked) || null;
     });
-    const shuffle = fresh.some(Boolean) ? `#/kit/${color}/${KIT_SLOTS.map((_, i) => (fresh[i] ? fresh[i].id : "")).join(",")}` : `#/kit/${color}`;
+    const shuffle = fresh.some(Boolean) ? `#/kit/${ck}/${KIT_SLOTS.map((_, i) => (fresh[i] ? fresh[i].id : "")).join(",")}` : `#/kit/${ck}`;
     const cname0 = colorById[color][1];
-    const pickHref = (i) => `#/kitpick/${color}/${i}/${idsOf(picks)}/0`;
-    const tag = (s) => (isNear(color, s) ? "近似" : sameSet(s) ? "同系列" : "");
+    const pickHref = (i) => `#/kitpick/${ck}/${i}/${idsOf(picks)}/0`;
+    const tag = (s) => (isNear(ck, s) ? "近似" : sameSet(s) ? "同系列" : "");
 
     // the full list for one slot, as an index sheet; choosing an item puts it in the kit and goes back
     if (pickSlot != null && KIT_SLOTS[pickSlot]) {
@@ -404,21 +414,22 @@
       const cell = (s) => `<a class="bk-cell${picks[i] && picks[i].id === s.id ? " on" : ""}" href="${hrefWith(i, s)}" style="--rc:${rc(s)}">
           <span class="bk-cell-photo">${s.img ? `<img loading="lazy" alt="" src="${esc(img(s.img, 256))}">` : ""}</span>
           <span class="bk-cell-cap"><i></i><span>${esc(i < 2 ? `${s.weaponName.replace(/（★）/, "")} · ${shortName(s)}` : `${s.weaponName} · ${shortName(s)}`)}</span>${tag(s) ? `<small>${tag(s)}</small>` : ""}</span></a>`;
-      const sp = sheetSpread({ title: `挑选${KIT_SLOTS[i].name}`, sub: `${list.length} 件 · 越靠前颜色越正`, list, base: `#/kitpick/${color}/${i}/${idsOf(picks)}`, page: pickPage || 0, runLabel: `${cname0}色套装 · ${KIT_SLOTS[i].name}`, cell });
-      return { ...sp, backTo: `#/kit/${color}/${idsOf(picks)}` };
+      const sp = sheetSpread({ title: `挑选${KIT_SLOTS[i].name}`, sub: `${list.length} 件 · 越靠前颜色越正`, list, base: `#/kitpick/${ck}/${i}/${idsOf(picks)}`, page: pickPage || 0, runLabel: `${cname0}色套装 · ${KIT_SLOTS[i].name}`, cell });
+      return { ...sp, backTo: `#/kit/${ck}/${idsOf(picks)}` };
     }
     const cname = colorById[color][1];
     const plate = (s, i) => `<a class="bk-kit-plate${i < 2 ? " big" : ""}" ${s ? `href="#/skin/${enc(s.id)}"` : ""} style="--rc:${s ? rc(s) : "#8c949c"}">
         <span class="bk-kit-slot">${KIT_SLOTS[i].name}</span>
         <span class="bk-cell-photo">${s && s.img ? `<img alt="" src="${esc(img(s.img, 360))}">` : `<span class="bk-noimg">缺</span>`}</span>
-        <span class="bk-cell-cap"><i></i><span>${s ? esc(s.weaponName) + " · " + esc(shortName(s)) : "暂无此色"}</span>${s && isNear(color, s) ? "<small>近似</small>" : s && sameSet(s) ? "<small>同系列</small>" : ""}</span></a>`;
+        <span class="bk-cell-cap"><i></i><span>${s ? esc(s.weaponName) + " · " + esc(shortName(s)) : "暂无此色"}</span>${s && isNear(ck, s) ? "<small>近似</small>" : s && sameSet(s) ? "<small>同系列</small>" : ""}</span></a>`;
     const left = `${run("配色套装", `${cname}色系 · 按刀配色`)}
-      <div class="bk-sheet-head"><h2 class="bk-h">${cname}色套装</h2><a class="bk-same" data-replace href="${shuffle}">换一套 ↻</a></div>
-      <div class="bk-filter"><span class="bk-filter-h">主色</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/kit/${c[0]}`, c[0] === color, "data-replace")).join("")}</div></div>
+      <div class="bk-sheet-head"><h2 class="bk-h">${cname}色${fs ? `<span class="fs-${fs}">${FS[fs]}</span>` : ""}套装</h2><a class="bk-same" data-replace href="${shuffle}">换一套 ↻</a></div>
+      <div class="bk-filter"><span class="bk-filter-h">主色</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/kit/${c[0]}${fs ? "." + fs : ""}`, c[0] === color, "data-replace")).join("")}</div></div>
+      <div class="bk-filter"><span class="bk-filter-h">风格</span><div class="bk-chips"><a data-replace href="#/kit/${color}"${fs ? "" : ' aria-current="true"'}>不限</a>${FS_ORDER.map((n) => fsTag(n, `#/kit/${color}.${n}`, n === fs, "data-replace")).join("")}</div></div>
       <div class="bk-kit">${picks.map(plate).join("")}</div>
       ${folio("套·1")}`;
     const right = `${run("备选", "点一件换上")}
-      ${KIT_SLOTS.map((slot, i) => { const ex = cands[i].filter((x) => !isNear(color, x)).length; return `<div class="bk-sec"><h3><a href="${pickHref(i)}">${slot.name} · ${ex} 件${cname}色${cands[i].length > ex ? `，另有 ${cands[i].length - ex} 件近似色` : ""} ›</a></h3>
+      ${KIT_SLOTS.map((slot, i) => { const ex = cands[i].filter((x) => !isNear(ck, x)).length; return `<div class="bk-sec"><h3><a href="${pickHref(i)}">${slot.name} · ${ex} 件${cname}色${fs && slot.key !== "gloves" ? FS[fs] : ""}${cands[i].length > ex ? `，另有 ${cands[i].length - ex} 件近似色` : ""} ›</a></h3>
         <div class="bk-strip">${cands[i].slice(0, 9).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}${tag(s) ? " · " + tag(s) : ""}</span></a>`).join("") || `<span class="bk-empty">这个颜色暂时没有</span>`}${cands[i].length > 9 ? `<a class="more" href="${pickHref(i)}"><b>全部</b><b>${cands[i].length} 件 ›</b></a>` : ""}</div></div>`; }).join("")}
       <p class="bk-src"><a href="#/color/${color}/all/0">查看全部${cname}色系 ›</a></p>
       ${folio("套·2")}`;
@@ -519,19 +530,29 @@
     const right = `${run(fileCode(s), esc(r.name))}
       <div class="bk-stamp" aria-hidden="true">${STAMPS[rank] || "机密"}</div>
       <div class="bk-kicker">${esc(s.weaponName)}${s.weaponEn && s.weaponEn !== s.weaponName ? ` ／ ${esc(s.weaponEn)}` : ""}</div>
-      <h2 class="bk-item-h">${esc(shortName(s))}</h2>
+      <h2 class="bk-item-h${s.fs ? ` fs-${s.fs}` : ""}">${esc(shortName(s))}</h2>
       <div class="bk-en">${esc((s.en.split("|")[1] || s.en).trim())}</div>
       <table class="bk-form">
         <tr><th>等级</th><td><span class="bk-rank" style="--rc:${r.color}">${"■".repeat(rank)}${"□".repeat(Math.max(0, 7 - rank))}</span> ${esc(r.name)}</td></tr>
         <tr><th>磨损区间</th><td>${min.toFixed(2)} — ${max.toFixed(2)}</td></tr>
         <tr><th>可出外观</th><td class="bk-checks">${WEARS.map((w, i) => `<span class="${avail[i] ? "on" : ""}">${avail[i] ? "☒" : "☐"} ${WEAR_SHORT[i]}</span>`).join("")}</td></tr>
         ${s.colors && s.colors.length ? `<tr><th>主色</th><td class="bk-sws inline">${s.colors.map((c) => swatch(c, `#/color/${c}/${enc(s.catName)}/0`, false)).join("")}<a class="bk-same" href="#/color/${s.colors.join("+")}/${enc(s.catName)}/0">同色系${esc(s.catName)} ›</a><a class="bk-same" href="#/kit/${s.colors[0]}/${enc(s.id)}">以它配一套 ›</a></td></tr>` : ""}
+        ${s.fs ? `<tr><th>涂装风格</th><td>${fsTag(s.fs, `#/style/${s.fs}/all/0`, false)} <small class="bk-en-small">${FS_EN[s.fs]}</small></td></tr>` : ""}
+        ${s.pi ? `<tr><th>涂装编号</th><td>${s.pi}</td></tr>` : ""}
         <tr><th>附加</th><td>${[s.st && "StatTrak™", s.sv && "纪念品", s.phase].filter(Boolean).map(esc).join("　") || "—"}</td></tr>
         ${s.pattern ? `<tr><th>涂装</th><td>${esc(s.pattern)}</td></tr>` : ""}
       </table>
       ${s.desc ? `<p class="bk-desc">${esc(s.desc)}</p>` : ""}
       ${s.lore ? `<p class="bk-lore">“${esc(s.lore)}”</p>` : ""}
-      <div class="bk-sec"><h3>来源</h3><p class="bk-src">${colls.map((c) => `<a href="#/coll/${enc(c.id)}">${esc(c.name)}</a>`).join("、")}${colls.length && cratesOf.length ? "；" : ""}${cratesOf.slice(0, 5).map((c) => `<a href="#/case/${enc(c.id)}">${esc(c.name)}</a>`).join("、")}${cratesOf.length > 5 ? ` 等 ${cratesOf.length} 处` : ""}${!colls.length && !cratesOf.length ? "不详" : ""}</p></div>
+      <div class="bk-sec"><h3>出处与索引</h3>
+        <div class="bk-xref">
+          ${cratesOf.map((c) => `<a href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span><small>武器箱</small>${esc(c.name)}</span></a>`).join("")}
+          ${colls.map((c) => `<a href="#/coll/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span><small>收藏品</small>${esc(c.name)}</span></a>`).join("")}
+          <a href="#/w/${enc(s.weapon)}/0"><span class="th"><img loading="lazy" alt="" src="${esc(img(s.img, 128))}"></span><span><small>武器</small>全部 ${esc(s.weaponName)}</span></a>
+        </div>
+        ${!colls.length && !cratesOf.length ? `<p class="bk-src">出处不详</p>` : ""}
+      </div>
+      ${(() => { const same = skins.filter((x) => x.weapon !== s.weapon && finish(x) === finish(s)); const seen = new Set(); const u = same.filter((x) => !seen.has(x.weapon) && seen.add(x.weapon)); return u.length ? `<div class="bk-sec"><h3>同款涂装 · 其他武器 ${u.length} 件</h3><div class="bk-strip">${u.map((x) => `<a href="#/skin/${enc(x.id)}" class="see" style="--rc:${rc(x)}"><img alt="" loading="lazy" src="${esc(img(x.img, 128))}"><span>${esc(x.weaponName)}</span></a>`).join("")}</div></div>` : ""; })()}
       ${sibs.length ? `<div class="bk-sec"><h3>参见 · ${esc(sibLabel)}</h3><div class="bk-strip">${sibs.map((x) => `<a href="#/skin/${enc(x.id)}" style="--rc:${rc(x)}" class="see"><img alt="" loading="lazy" src="${esc(img(x.img, 128))}"><span>${esc(shortName(x))}</span></a>`).join("")}</div></div>` : ""}
       ${s.en ? `<div class="bk-links">${WEARS.filter((w, i) => avail[i]).map((w) => `<a target="_blank" rel="noopener" href="https://steamcommunity.com/market/listings/730/${enc(`${s.en} (${w[1]})`)}">Steam·${w[0]}</a>`).join("")}<a target="_blank" rel="noopener" href="https://buff.163.com/market/csgo#game=csgo&page_num=1&search=${enc(s.name.replace("（★）", ""))}">BUFF</a></div>` : ""}
       ${folio(n * 2 + 1)}`;
@@ -618,16 +639,17 @@
       return { kind: "skin", order: [4, src.key, sp.idx], tab: ch.key, crumbs: [...src.crumbs, [it.n, null]], ...sp };
     }
     if (kind === "kitpick") {
-      const color = colorById[arg] ? arg : "red";
+      const color = colorById[String(arg).split(".")[0]] ? String(arg).split(".")[0] : "red";
       if (!hasColors) return resolve("#/toc");
       const slot = Math.max(0, Math.min(KIT_SLOTS.length - 1, parseInt(arg2, 10) || 0));
-      const sp = kitSpread(color, parts[3], slot, page(parts[4]));
+      const sp = kitSpread(arg, parts[3], slot, page(parts[4]));
       return { kind: "sheet-kit", order: [4, 97, color, slot, sp.page], tab: null, crumbs: [["配色套装", sp.backTo], [`挑选${KIT_SLOTS[slot].name}`, null]], ...sp };
     }
     if (kind === "kit") {
-      const color = colorById[arg] ? arg : "red";
+      const color = colorById[String(arg).split(".")[0]] ? String(arg).split(".")[0] : "red";
       if (!hasColors) return resolve("#/toc");
-      return { kind: "kit", order: [3, 97, color], tab: null, crumbs: [["配色套装", null], [`${colorById[color][1]}色`, null]], ...kitSpread(color, arg2) };
+      const fs = FS[+(String(arg).split(".")[1])] ? +String(arg).split(".")[1] : 0;
+      return { kind: "kit", order: [3, 97, color, fs], tab: null, crumbs: [["配色套装", null], [`${colorById[color][1]}色${fs ? " · " + FS[fs] : ""}`, null]], ...kitSpread(fs ? `${color}.${fs}` : color, arg2) };
     }
     if (kind === "color") {
       const ids = (arg || "").split("+").filter((c) => colorById[c]).slice(0, 3);
@@ -645,6 +667,25 @@
         </div>`;
       const extraFull = extra.replace("</div></div>", `</div><a class="bk-same" href="#/kit/${ids[0]}">配一套 ›</a></div>`);
       return sheetView([3, 98, ids.join("+"), cat], null, list, `#/color/${ids.join("+")}/${enc(cat)}`, page(parts[3]), `${name}色系`, `${list.length} 件${cat !== "all" ? ` · ${cat}` : ""}`, "按颜色检索", [["按颜色", null], [`${name}色系`, null]], extraFull, extraRight);
+    }
+    if (kind === "style") {
+      const n = FS[+arg] ? +arg : 1;
+      const cat = arg2 && arg2 !== "all" && cats.some((c) => c.name === arg2) ? arg2 : "all";
+      const list = skins.filter((s) => s.fs === n && (cat === "all" || s.catName === cat)).sort(byRarity);
+      const href = (m, ct) => `#/style/${m}/${enc(ct)}/0`;
+      const extra = `<div class="bk-filter"><span class="bk-filter-h">风格</span><div class="bk-chips">${FS_ORDER.map((m) => fsTag(m, href(m, cat), m === n, "data-replace")).join("")}</div></div>`;
+      const extraRight = `<div class="bk-filter"><span class="bk-filter-h">类别</span><div class="bk-chips"><a data-replace href="${href(n, "all")}"${cat === "all" ? ' aria-current="true"' : ""}>全部</a>${cats.filter((c) => c.name !== "手套").map((c) => `<a data-replace href="${href(n, c.name)}"${cat === c.name ? ' aria-current="true"' : ""}>${esc(TAB_SHORT[c.name] || c.name)}</a>`).join("")}</div><a class="bk-same" href="#/kit/red.${n}">配一套 ›</a></div>`;
+      return sheetView([3, 96, n, cat], null, list, `#/style/${n}/${enc(cat)}`, page(parts[3]), FS[n], `${FS_EN[n]} · ${list.length} 件`, "按涂装风格", [["按涂装风格", null], [FS[n], null]], extra, extraRight);
+    }
+    if (kind === "by") {
+      // reverse index for stickers and other items: same capsule, team, player or event
+      const field = { src: "src", team: "team", pl: "pl", ev: "ev" }[arg];
+      if (!field) return resolve("#/toc");
+      const v = arg2 || "";
+      const all = loadAllStickers();
+      const list = [...xById.values()].filter((it) => it[field] === v).sort((a, b) => xRar(b).rank - xRar(a).rank);
+      const label = { src: "来源", team: "战队", pl: "选手", ev: "赛事" }[arg];
+      return sheetView([3, 95, arg, v], null, list, `#/by/${arg}/${enc(v)}`, page(parts[3]), v, `${label} · ${list.length} 件${all ? "" : " · 检索中…"}`, `按${label}`, [[label, null], [v, null]]);
     }
     if (kind === "cases") {
       const sp = listSpread({ title: "附录甲 · 武器箱", en: "CASES", rows: crates.map(caseRow), base: "#/cases", page: page(arg) });
