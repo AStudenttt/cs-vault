@@ -115,10 +115,30 @@ def main_color(img_bytes):
     return out or None
 
 
+def palette(img_bytes, k=4):
+    """The item's few main colours as [hex, share] pairs, largest first (used to match kits by real colour)."""
+    from PIL import Image
+    im = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
+    im.thumbnail((64, 64))
+    px = [(r, g, b) for r, g, b, a in im.getdata() if a >= 128]
+    if not px:
+        return None
+    strip = Image.new("RGB", (len(px), 1))
+    strip.putdata(px)
+    q = strip.quantize(colors=k, method=Image.Quantize.MEDIANCUT)
+    pal = q.getpalette()
+    out = []
+    for count, idx in sorted(q.getcolors(), reverse=True)[:3]:
+        r, g, b = pal[idx * 3: idx * 3 + 3]
+        out.append([f"#{r:02x}{g:02x}{b:02x}", round(count / len(px), 2)])
+    return out
+
+
 def compute_colors(skins):
     def work(s):
         try:
-            return s["id"], main_color(get(s["img"] + "/128fx128f", timeout=30))
+            data = get(s["img"] + "/128fx128f", timeout=30)
+            return s["id"], (main_color(data), palette(data))
         except Exception as e:  # network hiccups should not fail the build
             print("color failed", s["id"], e, file=sys.stderr)
             return s["id"], None
@@ -127,7 +147,11 @@ def compute_colors(skins):
         res = dict(ex.map(work, skins))
     for s in skins:
         if res.get(s["id"]):
-            s["colors"] = res[s["id"]]
+            names, pal = res[s["id"]]
+            if names:
+                s["colors"] = names
+            if pal:
+                s["pal"] = pal
     ok = sum(1 for s in skins if s.get("colors"))
     print(f"colors: {ok}/{len(skins)}")
 

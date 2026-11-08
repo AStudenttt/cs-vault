@@ -325,29 +325,77 @@
   }
   const nearSet = new Set();
   const isNear = (color, s) => nearSet.has(color + s.id);
+  // ----- matching by real colour (palette from the build) and by shared finish -----
+  const labCache = new Map();
+  function lab(hex) {
+    if (labCache.has(hex)) return labCache.get(hex);
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v > 0.04045 ? ((v + 0.055) / 1.055) ** 2.4 : v / 12.92));
+    const xyz = [
+      (c[0] * 0.4124 + c[1] * 0.3576 + c[2] * 0.1805) / 0.95047,
+      c[0] * 0.2126 + c[1] * 0.7152 + c[2] * 0.0722,
+      (c[0] * 0.0193 + c[1] * 0.1192 + c[2] * 0.9505) / 1.08883,
+    ].map((v) => (v > 0.008856 ? Math.cbrt(v) : 7.787 * v + 16 / 116));
+    const out = [116 * xyz[1] - 16, 500 * (xyz[0] - xyz[1]), 200 * (xyz[1] - xyz[2])];
+    labCache.set(hex, out);
+    return out;
+  }
+  const dE = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  // how far apart two palettes look: each colour finds its nearest partner, weighted by how much of the item it covers
+  function palDist(p, q) {
+    const one = (x, y) => x.reduce((sum, [h, w]) => sum + w * Math.min(...y.map(([g]) => dE(lab(h), lab(g)))), 0) / (x.reduce((t, [, w]) => t + w, 0) || 1);
+    return (one(p, q) + one(q, p)) / 2;
+  }
+  const finish = (s) => shortName(s).replace(/（.*?）/g, "").trim();
+  // lower is a better match for the items already chosen
+  function matchScore(s, chosen) {
+    if (!chosen.length) return -(rarityRank[s.rarity] || 0);
+    let score = 0;
+    for (const c of chosen) {
+      score += s.pal && c.pal ? palDist(s.pal, c.pal) : 40;
+      if (finish(s) === finish(c)) score -= 30;              // same finish across weapons: a natural set
+      if (s.coll.some((id) => c.coll.includes(id))) score -= 6; // same collection
+    }
+    return score / chosen.length - (rarityRank[s.rarity] || 0) * 1.5;
+  }
+
   function kitSpread(color, picksArg) {
     const cands = kitCandidates(color);
     const given = (picksArg || "").split(",").map((id) => byId.get(id));
-    const picks = KIT_SLOTS.map((slot, i) => {
+    // Fill slots in order; each new piece is matched against the pieces already chosen.
+    const picks = [];
+    KIT_SLOTS.forEach((slot, i) => {
       const g = given.find((s) => s && slot.test(s));
-      return g || cands[i][0] || null;
+      if (g) { picks[i] = g; return; }
+      const chosen = picks.filter(Boolean).concat(given.filter((x) => x && !picks.includes(x)));
+      const exact = cands[i].filter((s) => !isNear(color, s));
+      const pool = (exact.length ? exact : cands[i]).slice(0, 80);
+      picks[i] = pool.slice().sort((a, b) => matchScore(a, chosen) - matchScore(b, chosen))[0] || null;
     });
+    const anchors = picks.filter(Boolean);
+    // the backup strips are ordered by how well each item goes with the rest of the kit
+    KIT_SLOTS.forEach((slot, i) => {
+      const others = anchors.filter((x) => x !== picks[i]);
+      cands[i] = cands[i].slice(0, 80).sort((a, b) => (isNear(color, a) - isNear(color, b)) || (matchScore(a, others) - matchScore(b, others)));
+    });
+    const sameSet = (s) => anchors.some((x) => x !== s && finish(x) === finish(s));
     const idsOf = (arr) => arr.map((s) => (s ? s.id : "")).join(",");
-    const hrefWith = (i, s) => { const a = picks.slice(); a[i] = s; return `#/kit/${color}/${idsOf(a)}`; };
-    const shuffle = `#/kit/${color}/${idsOf(cands.map((c) => c[Math.floor(Math.random() * Math.min(c.length, 12))] || null))}`;
+    // choosing a new knife re-matches the rest; any other swap keeps the kit as it is
+    const hrefWith = (i, s) => { if (i === 0) return `#/kit/${color}/${s.id}`; const a = picks.slice(); a[i] = s; return `#/kit/${color}/${idsOf(a)}`; };
+    const k0 = cands[0].filter((s) => !isNear(color, s));
+    const shuffle = k0.length ? `#/kit/${color}/${k0[Math.floor(Math.random() * Math.min(k0.length, 20))].id}` : `#/kit/${color}`;
     const cname = colorById[color][1];
     const plate = (s, i) => `<a class="bk-kit-plate${i < 2 ? " big" : ""}" ${s ? `href="#/skin/${enc(s.id)}"` : ""} style="--rc:${s ? rc(s) : "#8c949c"}">
         <span class="bk-kit-slot">${KIT_SLOTS[i].name}</span>
         <span class="bk-cell-photo">${s && s.img ? `<img alt="" src="${esc(img(s.img, 360))}">` : `<span class="bk-noimg">缺</span>`}</span>
-        <span class="bk-cell-cap"><i></i><span>${s ? esc(s.weaponName) + " · " + esc(shortName(s)) : "暂无此色"}</span>${s && isNear(color, s) ? "<small>近似</small>" : ""}</span></a>`;
-    const left = `${run("配色套装", `${cname}色系`)}
+        <span class="bk-cell-cap"><i></i><span>${s ? esc(s.weaponName) + " · " + esc(shortName(s)) : "暂无此色"}</span>${s && isNear(color, s) ? "<small>近似</small>" : s && sameSet(s) ? "<small>同系列</small>" : ""}</span></a>`;
+    const left = `${run("配色套装", `${cname}色系 · 按刀配色`)}
       <div class="bk-sheet-head"><h2 class="bk-h">${cname}色套装</h2><a class="bk-same" data-replace href="${shuffle}">换一套 ↻</a></div>
       <div class="bk-filter"><span class="bk-filter-h">主色</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/kit/${c[0]}`, c[0] === color, "data-replace")).join("")}</div></div>
       <div class="bk-kit">${picks.map(plate).join("")}</div>
       ${folio("套·1")}`;
     const right = `${run("备选", "点一件换上")}
       ${KIT_SLOTS.map((slot, i) => { const ex = cands[i].filter((x) => !isNear(color, x)).length; return `<div class="bk-sec"><h3>${slot.name} · ${ex} 件${cname}色${cands[i].length > ex ? `，另有 ${cands[i].length - ex} 件近似色` : ""}</h3>
-        <div class="bk-strip">${cands[i].slice(0, 10).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}${isNear(color, s) ? " · 近似" : ""}</span></a>`).join("") || `<span class="bk-empty">这个颜色暂时没有</span>`}</div></div>`; }).join("")}
+        <div class="bk-strip">${cands[i].slice(0, 10).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}${isNear(color, s) ? " · 近似" : sameSet(s) ? " · 同系列" : ""}</span></a>`).join("") || `<span class="bk-empty">这个颜色暂时没有</span>`}</div></div>`; }).join("")}
       <p class="bk-src"><a href="#/color/${color}/all/0">查看全部${cname}色系 ›</a></p>
       ${folio("套·2")}`;
     return { left, right };
