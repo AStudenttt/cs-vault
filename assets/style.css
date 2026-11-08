@@ -391,3 +391,33 @@ a { color: inherit; }
 .bk-kit-pair { flex: none; display: inline-flex; align-items: center; gap: 4px; font: 700 .72rem var(--zh); color: var(--ink-2); }
 .bk-kit-pair i { width: 14px; height: 14px; display: inline-block; border: 2px solid var(--paper-hi); box-shadow: 0 0 0 1px rgba(29, 34, 25, .3); }
 .bk-filter .bk-chips a span[class^="fs-"] { font-weight: 800; }
+
+/* taste test */
+.bk-duel-head { flex: none; display: flex; flex-direction: column; gap: 2px; min-height: 86px; }
+.bk-duel-head .bk-h { margin: 0; }
+.bk-duel-sub { font: 400 .82rem var(--type); color: var(--ink-2); }
+.bk-duel-opt { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 0; border: 0; background: transparent; cursor: pointer; text-align: left; color: var(--ink); font: inherit; }
+.bk-duel-opt .bk-photo { flex: 1; transition: transform .2s ease, box-shadow .2s ease, filter .3s ease; }
+.bk-duel-opt:hover:not(:disabled) .bk-photo { transform: translateY(-4px); box-shadow: 0 2px 0 #c8c4b0, 0 16px 26px rgba(30, 28, 18, .35); }
+.bk-duel-opt:disabled { cursor: default; }
+.bk-duel-opt.lost .bk-photo { filter: grayscale(.85) brightness(.75); }
+.bk-duel-cap { display: flex; flex-direction: column; gap: 2px; min-height: 2.8em; }
+.bk-duel-cap b { font: 800 1rem var(--zh); }
+.bk-duel-cap small { font: 400 .76rem var(--type); color: var(--ink-2); }
+.bk-duel-stamp { position: absolute; top: 18px; right: 18px; padding: 4px 14px; font: 900 1.3rem var(--zh); letter-spacing: .3em; color: var(--red); border: 3px double var(--red); transform: rotate(-8deg); background: rgba(241, 239, 229, .85); animation: bk-stamp .25s ease-out both; }
+@keyframes bk-stamp { from { transform: rotate(-8deg) scale(1.6); opacity: 0; } to { transform: rotate(-8deg) scale(1); opacity: 1; } }
+.bk-duel-foot { flex: none; display: flex; justify-content: space-between; gap: 10px; font: 400 .82rem var(--type); color: var(--ink-2); }
+.bk-duel-foot a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--red); text-underline-offset: 3px; }
+.bk-duel-two { display: grid; grid-template-columns: 1fr; gap: 16px; }
+.bk-duel-two .bk-photo { aspect-ratio: 16 / 10; flex: none; min-height: 0; }
+.bk-duel-two { gap: 10px; }
+.bk-duel-two .bk-duel-cap { min-height: 0; }
+.bk-taste-verdict { margin: 0; font: 800 1.15rem/1.6 var(--zh); }
+.bk-taste-dim { display: flex; flex-direction: column; gap: 4px; }
+.bk-taste-dim h3 { margin: 6px 0 2px; font: 700 .74rem var(--zh); letter-spacing: .3em; color: var(--ink-2); border-bottom: 1px dashed rgba(29, 34, 25, .4); padding-bottom: 3px; }
+.bk-taste-row { display: grid; grid-template-columns: 6.5em 1fr 3em 3.4em; align-items: center; gap: 8px; font: 400 .85rem var(--zh); }
+.bk-taste-row .bar { height: 8px; background: rgba(29, 34, 25, .12); }
+.bk-taste-row .bar i { display: block; height: 100%; background: var(--ink); }
+.bk-taste-row:first-of-type .bar i { background: var(--red); }
+.bk-taste-row .n { font: 400 .8rem var(--type); text-align: right; font-variant-numeric: tabular-nums; }
+.bk-taste-row small { font: 400 .7rem var(--type); color: var(--ink-2); }

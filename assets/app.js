@@ -16,7 +16,7 @@
   let hasColors = false;
   const TAB_SHORT = { "微型冲锋枪": "冲锋枪", "重型武器": "重武器" };
   const TAB_CHAR = { "匕首": "匕", "手套": "套", "步枪": "步", "手枪": "手", "微型冲锋枪": "冲", "重型武器": "重", "装备": "装",
-    "贴纸": "贴", "挂件": "挂", "探员": "探", "音乐盒": "音", "布章": "布", "勋章": "勋", "涂鸦": "涂", "武器箱": "箱", "收藏品": "藏" };
+    "贴纸": "贴", "挂件": "挂", "探员": "探", "音乐盒": "音", "布章": "布", "勋章": "勋", "涂鸦": "涂", "武器箱": "箱", "收藏品": "藏", "审美测试": "审" };
   // in-game Finish Style (the inspect box), from items_game.txt
   const FS = [null, "纯色", "水转印", "喷漆", "电镀", "多色电镀", "电镀喷绘", "自定义涂装", "古铜", "枪匠", "表面淬火"];
   const FS_EN = [null, "Solid Color", "Hydrographic", "Spray-Paint", "Anodized", "Anodized Multicolored", "Anodized Airbrushed", "Custom Paint Job", "Patina", "Gunsmith", "Case Hardening"];
@@ -226,6 +226,8 @@
       <h2 class="bk-h bk-toc-h">目　录</h2>
       <nav class="bk-toc" aria-label="目录"><div class="bk-toc-part">上编 · 武器涂装</div>${rows}
         ${xrows ? `<div class="bk-toc-part">下编 · 饰品与收藏</div>${xrows}` : ""}
+        ${hasColors ? `<div class="bk-toc-part">特　辑</div>
+        <a class="bk-toc-row" href="#/duel"><span class="no">特辑</span><span class="t">审美测试<small>TASTE TEST</small></span><span class="dots"></span><span class="n">${taste.n ? taste.n + " 轮" : "二选一"}</span></a>` : ""}
         <div class="bk-toc-part">附　录</div>
         <a class="bk-toc-row" href="#/cases"><span class="no">附录甲</span><span class="t">箱子与胶囊<small>CONTAINERS</small></span><span class="dots"></span><span class="n">${crates.length}</span></a>
         <a class="bk-toc-row" href="#/colls"><span class="no">附录乙</span><span class="t">收藏品<small>COLLECTIONS</small></span><span class="dots"></span><span class="n">${Object.keys(meta.collections).length}</span></a>
@@ -617,6 +619,140 @@
     return { left, right, k, pName };
   }
 
+  // ===== taste test: pick the one you like more; the book learns what you like =====
+  // Everything is kept in this browser only.
+  const TASTE_KEY = "cs-vault-taste-v1";
+  function loadTaste() {
+    try { const t = JSON.parse(localStorage.getItem(TASTE_KEY)); if (t && t.f) return t; } catch (e) { /* storage blocked */ }
+    return { n: 0, f: {}, elo: {}, picks: {} };
+  }
+  let taste = loadTaste();
+  const saveTaste = () => { try { localStorage.setItem(TASTE_KEY, JSON.stringify(taste)); } catch (e) { /* storage blocked */ } };
+  const DUEL_MIN = 10;
+  const QUESTIONS = ["哪个更好看？", "更想拿在手上的是？", "哪个更合你的眼缘？", "二选一，留哪个？", "哪个看久了不腻？"];
+
+  // the things the test learns about, each with a readable value
+  function traits(s) {
+    const m = metrics(s);
+    const out = {};
+    out.color = m.neutral >= 0.6 || m.hue == null ? "黑白灰" : hueName(m.hue);
+    if (m.chroma >= 0.3) out.vivid = m.sat > 0.55 ? "鲜艳" : m.sat < 0.32 ? "低调" : "适中";
+    out.busy = m.busy ? "花哨" : "素净";
+    out.light = m.light > 0.6 ? "浅色" : m.light < 0.35 ? "深色" : "中等明暗";
+    if (s.fs) out.style = FS[s.fs];
+    return out;
+  }
+  const TRAIT_NAMES = { color: "颜色", vivid: "鲜艳度", busy: "花色", light: "明暗", style: "涂装风格" };
+  const pref = (dim, val) => { const r = taste.f[dim + ":" + val]; return r ? (r.w + 1) / (r.s + 2) : 0.5; };
+  const likeScore = (s) => Object.entries(traits(s)).reduce((sum, [d, v]) => sum + (pref(d, v) - 0.5), 0);
+
+  let duel = null;
+  function newDuel() {
+    const pool = (slot) => skins.filter((s) => slot.test(s) && s.img);
+    const slot = KIT_SLOTS[Math.floor(Math.random() * KIT_SLOTS.length)];
+    const all = pool(slot);
+    const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    // now and then put a likely favourite in, so the profile sharpens instead of only exploring
+    const a = taste.n >= DUEL_MIN && Math.random() < 0.3 ? rnd(all.slice().sort((x, y) => likeScore(y) - likeScore(x)).slice(0, 40)) : rnd(all);
+    const ta = traits(a);
+    // the other one should differ in at least two traits, so the choice says something
+    const differ = all.filter((s) => s.name !== a.name && Object.keys(TRAIT_NAMES).filter((d) => traits(s)[d] !== ta[d]).length >= 2);
+    const b = rnd(differ.length ? differ : all.filter((s) => s !== a));
+    duel = { a, b, slot: slot.name, q: rnd(QUESTIONS), chosen: null };
+    if (Math.random() < 0.5) [duel.a, duel.b] = [duel.b, duel.a];
+  }
+
+  function recordDuel(winner, loser) {
+    const tw = traits(winner), tl = traits(loser);
+    for (const d of Object.keys(TRAIT_NAMES)) {
+      if (tw[d] === tl[d]) continue;                       // a trait both share tells us nothing
+      for (const [v, won] of [[tw[d], 1], [tl[d], 0]]) {
+        if (v == null) continue;
+        const k = d + ":" + v, r = taste.f[k] || (taste.f[k] = { w: 0, s: 0 });
+        r.s += 1; r.w += won;
+      }
+    }
+    const ea = taste.elo[winner.id] ?? 1500, eb = taste.elo[loser.id] ?? 1500;
+    const exp = 1 / (1 + 10 ** ((eb - ea) / 400));
+    taste.elo[winner.id] = Math.round(ea + 32 * (1 - exp));
+    taste.elo[loser.id] = Math.round(eb - 32 * (1 - exp));
+    taste.picks[winner.id] = (taste.picks[winner.id] || 0) + 1;
+    taste.n += 1;
+    saveTaste();
+  }
+
+  function duelSpread() {
+    if (!duel) newDuel();
+    const opt = (s, side) => {
+      const r = rarityById[s.rarity] || { color: "#8c949c" };
+      const shown = duel.chosen != null;
+      const won = duel.chosen === side;
+      return `<button class="bk-duel-opt${shown ? (won ? " won" : " lost") : ""}" data-duel="${side}" ${shown ? "disabled" : ""}>
+        <span class="bk-photo" style="--rc:${shown ? r.color : "#6b6f5e"}"><img alt="" decoding="async" src="${esc(img(s.img, 512))}"></span>
+        <span class="bk-duel-cap">${shown ? `<b>${esc(s.weaponName.replace(/（★）/, ""))} · ${esc(shortName(s))}</b><small>${esc(Object.values(traits(s)).join(" · "))}</small>` : `<b>${side === "a" ? "甲" : "乙"}</b><small>点这一页选它</small>`}</span>
+        ${won ? `<span class="bk-duel-stamp">中选</span>` : ""}
+      </button>`;
+    };
+    const head = `<div class="bk-duel-head"><span class="bk-ch-no">审美测试 · 第 ${taste.n + 1} 轮</span><h2 class="bk-h">${duel.q}</h2><span class="bk-duel-sub">两件都是${duel.slot}，只看样子，不看名字</span></div>`;
+    const foot = `<div class="bk-duel-foot"><a href="#" data-duel="skip">都差不多，换一组</a>${taste.n >= DUEL_MIN ? `<a href="#/taste">看我的审美档案 ›</a>` : `<span>再选 ${DUEL_MIN - taste.n} 轮可以看审美档案</span>`}</div>`;
+    if (!wideQuery.matches) {
+      return { left: `${run("审美测试", `已选 ${taste.n} 轮`)}${head}<div class="bk-duel-two">${opt(duel.a, "a")}${opt(duel.b, "b")}</div>${foot}`, right: "", rightEmpty: true };
+    }
+    return {
+      left: `${run("审美测试", `已选 ${taste.n} 轮`)}${head}${opt(duel.a, "a")}${folio("甲")}`,
+      right: `${run(duel.slot, "← → 键也可以选")}<div class="bk-duel-head mirror"></div>${opt(duel.b, "b")}${foot}${folio("乙")}`,
+    };
+  }
+
+  function chooseDuel(side) {
+    if (!duel || duel.chosen != null) return;
+    if (side === "skip") { newDuel(); route(false, 0); return; }
+    const [w, l] = side === "a" ? [duel.a, duel.b] : [duel.b, duel.a];
+    recordDuel(w, l);
+    duel.chosen = side;
+    route(false, 0);
+    const mine = duel;
+    setTimeout(() => { if (duel === mine && state && state.kind === "duel") { newDuel(); route(false, 0); } }, reduceMotion ? 1200 : 900);
+  }
+
+  function tasteSpread() {
+    const bars = (dim) => {
+      const vals = Object.keys(taste.f).filter((k) => k.startsWith(dim + ":")).map((k) => [k.slice(dim.length + 1), taste.f[k]]).filter(([, r]) => r.s >= 2)
+        .map(([v, r]) => [v, (r.w + 1) / (r.s + 2), r]).sort((a, b) => b[1] - a[1]);
+      if (!vals.length) return "";
+      return `<div class="bk-taste-dim"><h3>${TRAIT_NAMES[dim]}</h3>${vals.slice(0, 5).map(([v, p, r]) => `<div class="bk-taste-row"><span class="v">${dim === "style" ? `<span class="fs-${FS.indexOf(v)}">${esc(v)}</span>` : esc(v)}</span><span class="bar"><i style="width:${Math.round(p * 100)}%"></i></span><span class="n">${Math.round(p * 100)}%</span><small>${r.w}/${r.s}</small></div>`).join("")}</div>`;
+    };
+    const top = (dim) => {
+      const vals = Object.keys(taste.f).filter((k) => k.startsWith(dim + ":")).map((k) => [k.slice(dim.length + 1), taste.f[k]]).filter(([, r]) => r.s >= 2).sort((a, b) => (b[1].w + 1) / (b[1].s + 2) - (a[1].w + 1) / (a[1].s + 2));
+      return vals.length ? vals[0][0] : null;
+    };
+    const favColor = top("color"), favStyle = top("style"), favBusy = top("busy"), favVivid = top("vivid");
+    const verdict = [favColor && `偏爱${favColor}`, favVivid && `喜欢${favVivid}`, favBusy && `${favBusy}`, favStyle && (favStyle.endsWith("涂装") ? favStyle : `${favStyle}涂装`)].filter(Boolean).join("、");
+    const colorId = favColor && favColor !== "黑白灰" ? (COLORS.find((c) => c[1] === favColor) || [])[0] : null;
+    const kitHref = favColor === "黑白灰" ? "#/kit/neutral.red" : colorId ? `#/kit/mono.${colorId}` : "#/kit/mono.red";
+    const loved = Object.entries(taste.elo).filter(([, e]) => e > 1500).sort((a, b) => b[1] - a[1]).map(([id]) => byId.get(id)).filter(Boolean).slice(0, 6);
+    const seen = new Set(Object.keys(taste.elo));
+    const recs = skins.filter((s) => !seen.has(s.id) && s.img).map((s) => [s, likeScore(s)]).sort((a, b) => b[1] - a[1]).map(([s]) => s);
+    const recU = []; const names = new Set();
+    for (const s of recs) { if (!names.has(s.name)) { names.add(s.name); recU.push(s); } if (recU.length >= 6) break; }
+    const mini = (s) => `<a href="#/skin/${enc(s.id)}" class="see" style="--rc:${rc(s)}"><img alt="" loading="lazy" decoding="async" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}</span></a>`;
+    const left = `${run("审美档案", `${taste.n} 轮`)}
+      <div class="bk-duel-head"><span class="bk-ch-no">审美档案</span><h2 class="bk-h">${taste.n < DUEL_MIN ? "还需要多选几轮" : "你的口味"}</h2></div>
+      ${taste.n < DUEL_MIN ? `<p class="bk-p">再选 ${DUEL_MIN - taste.n} 轮就能生成档案。<a class="bk-same" href="#/duel">继续测试 ›</a></p>` : `
+      <p class="bk-taste-verdict">${esc(verdict || "口味还不明显，多选几轮会更准")}</p>
+      ${Object.keys(TRAIT_NAMES).map(bars).join("")}
+      <p class="bk-src">百分比是这一项出现时你选中它的比例，越高越喜欢。<a class="bk-same" href="#/duel">继续测试 ›</a></p>`}
+      ${folio("审·1")}`;
+    const right = `${run("按你的口味", "推荐")}
+      ${taste.n >= DUEL_MIN ? `<div class="bk-sec"><h3>你选得最多的</h3><div class="bk-strip">${loved.map(mini).join("") || `<span class="bk-empty">还没有</span>`}</div></div>
+      <div class="bk-sec"><h3>没见过，但你应该会喜欢</h3><div class="bk-strip">${recU.map(mini).join("")}</div></div>
+      <div class="bk-sec"><h3>用你的口味配一套</h3><p class="bk-src"><a href="${kitHref}">按${esc(favColor || "红")}色配一套 ›</a>${favStyle ? `　<a href="#/kit/theme.${FS.indexOf(favStyle)}">按${esc(favStyle)}风格配一套 ›</a>` : ""}</p></div>` : ""}
+      <div class="bk-sec"><h3>记录</h3><p class="bk-src">只存在这台设备的这个浏览器里。<a href="#" data-taste-reset>${tasteResetArmed ? "再点一次确认清空" : "清空重来"}</a></p></div>
+      ${folio("审·2")}`;
+    return { left, right };
+  }
+  let tasteResetArmed = false;
+
   // How many photos fit on one page: aim for plates about 240px wide with 4:3 photos,
   // sized from the real page so both pages always hold the same number of equal cells.
   function gridShape(tall) {
@@ -819,6 +955,8 @@
       const sp = xItemSpread(it, src.list);
       return { kind: "skin", order: [4, src.key, sp.idx], tab: ch.key, crumbs: [...src.crumbs, [it.n, null]], ...sp };
     }
+    if (kind === "duel") return { kind: "duel", order: [3, 94], tab: "taste", crumbs: [["审美测试", null]], ...duelSpread() };
+    if (kind === "taste") return { kind: "taste", order: [3, 94, 1], tab: "taste", crumbs: [["审美测试", "#/duel"], ["审美档案", null]], ...tasteSpread() };
     if (kind === "kitpick") {
       if (!hasColors) return resolve("#/toc");
       const slot = Math.max(0, Math.min(KIT_SLOTS.length - 1, parseInt(arg2, 10) || 0));
@@ -984,7 +1122,7 @@
     const tab = (href, key, name, cls = "") => `<a href="${href}" data-tab="${key}" title="${esc(name)}" aria-label="${esc(name)}"${cls ? ` class="${cls}"` : ""}>${esc(TAB_CHAR[name] || name.slice(0, 1))}</a>`;
     $(".bk-tabs", app).innerHTML = cats.map((c, i) => tab(`#/c/${enc(c.name)}`, i, c.name)).join("")
       + xch.map((c, i) => tab(`#/c/${enc(c.name)}`, c.key, c.name, i === 0 ? "part" : "x")).join("")
-      + tab("#/cases", "cases", "武器箱", "part ap") + tab("#/colls", "colls", "收藏品", "ap");
+      + (hasColors ? tab("#/duel", "taste", "审美测试", "part") : "") + tab("#/cases", "cases", "武器箱", "part ap") + tab("#/colls", "colls", "收藏品", "ap");
 
     app.addEventListener("submit", (e) => {
       const f = e.target.closest("[data-search]");
@@ -995,6 +1133,14 @@
     });
     app.addEventListener("click", (e) => {
       if (e.target.closest("[data-open]")) { location.hash = "#/toc"; return; }
+      const du = e.target.closest("[data-duel]");
+      if (du) { e.preventDefault(); chooseDuel(du.dataset.duel); return; }
+      if (e.target.closest("[data-taste-reset]")) {
+        e.preventDefault();
+        if (tasteResetArmed) { taste = { n: 0, f: {}, elo: {}, picks: {} }; saveTaste(); tasteResetArmed = false; }
+        else { tasteResetArmed = true; setTimeout(() => { tasteResetArmed = false; }, 4000); }
+        route(false, 0); return;
+      }
       if (e.target.closest("[data-shuffle]")) { e.preventDefault(); if (kitShuffle) { history.replaceState(null, "", kitShuffle()); route(false, 0); } return; }
       const a = e.target.closest("a[data-replace]");
       if (a) { e.preventDefault(); history.replaceState(null, "", a.getAttribute("href")); route(false, 0); return; }
@@ -1003,6 +1149,7 @@
     });
     addEventListener("keydown", (e) => {
       if (e.target.closest && e.target.closest("input")) return;
+      if (state && state.kind === "duel" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { chooseDuel(e.key === "ArrowLeft" ? "a" : "b"); return; }
       if (e.key === "ArrowRight") turn(1);
       else if (e.key === "ArrowLeft") turn(-1);
       else if (e.key === "Escape" && state) {
