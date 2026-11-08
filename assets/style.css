@@ -377,3 +377,17 @@ a { color: inherit; }
 .bk-sheet-head { flex-wrap: nowrap; min-width: 0; }
 .bk-sheet-head .bk-h { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .bk-sheet-head span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 2 auto; }
+
+/* outfit builder */
+.bk-kit-plate { position: relative; }
+.bk-kit-plate .bk-cell-photo { display: grid; text-decoration: none; }
+.bk-page .bk-kit-lock, .bk-kit-lock { position: absolute; z-index: 2; top: 10px; right: 10px; font: 700 .68rem var(--zh); letter-spacing: .1em; padding: 2px 7px; text-decoration: none; color: var(--paper-hi); background: rgba(29, 34, 25, .55); border: 1px solid rgba(241, 239, 229, .4); }
+.bk-kit-lock:hover { background: rgba(29, 34, 25, .8); }
+.bk-kit-plate.locked { outline: 2px solid var(--ink); outline-offset: 1px; }
+.bk-kit-plate.locked .bk-kit-lock { background: var(--red); border-color: var(--red); }
+.bk-kit-why { font: 400 .72rem/1.4 var(--type); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bk-kit-rule { margin: 0; font: 400 .85rem/1.6 var(--type); color: var(--ink-2); }
+.bk-kit-rule b { font-family: var(--zh); color: var(--ink); }
+.bk-kit-pair { flex: none; display: inline-flex; align-items: center; gap: 4px; font: 700 .72rem var(--zh); color: var(--ink-2); }
+.bk-kit-pair i { width: 14px; height: 14px; display: inline-block; border: 2px solid var(--paper-hi); box-shadow: 0 0 0 1px rgba(29, 34, 25, .3); }
+.bk-filter .bk-chips a span[class^="fs-"] { font-weight: 800; }
