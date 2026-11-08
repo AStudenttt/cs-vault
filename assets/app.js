@@ -385,13 +385,17 @@
     // a new kit: any knife in this colour, then each other piece drawn at random from its six best matches
     const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
     const fresh = [];
-    if (k0.length) fresh[0] = rand(k0);
+    // every slot is guaranteed to change: the current piece is left out of the draw
+    const notNow = (i) => (s) => !picks[i] || s.name !== picks[i].name;
+    if (k0.length) fresh[0] = rand(k0.filter(notNow(0)).length ? k0.filter(notNow(0)) : k0);
     KIT_SLOTS.forEach((slot, i) => {
       if (i === 0) return;
       const exact = cands[i].filter((s) => !isNear(color, s));
-      const pool = exact.length ? exact : cands[i];
+      const pool = (exact.length ? exact : cands[i]);
       const chosen = fresh.filter(Boolean);
-      fresh[i] = rand(pool.slice().sort((a, b) => matchScore(a, chosen) - matchScore(b, chosen)).slice(0, 6)) || null;
+      const ranked = pool.slice().sort((a, b) => matchScore(a, chosen) - matchScore(b, chosen));
+      const top = ranked.filter(notNow(i)).slice(0, 10);
+      fresh[i] = rand(top.length ? top : ranked) || null;
     });
     const shuffle = fresh.some(Boolean) ? `#/kit/${color}/${KIT_SLOTS.map((_, i) => (fresh[i] ? fresh[i].id : "")).join(",")}` : `#/kit/${color}`;
     const cname0 = colorById[color][1];
