@@ -15,6 +15,19 @@
   const colorById = Object.fromEntries(COLORS.map((c) => [c[0], c]));
   let hasColors = false;
   const TAB_SHORT = { "微型冲锋枪": "冲锋枪", "重型武器": "重武器" };
+  const TAB_CHAR = { "匕首": "匕", "手套": "套", "步枪": "步", "手枪": "手", "微型冲锋枪": "冲", "重型武器": "重", "装备": "装",
+    "贴纸": "贴", "挂件": "挂", "探员": "探", "音乐盒": "音", "布章": "布", "勋章": "勋", "涂鸦": "涂", "武器箱": "箱", "收藏品": "藏" };
+  const FX = { Gold: "金色", Holo: "全息", Foil: "闪亮", Glitter: "闪耀", Embroidered: "刺绣", Lenticular: "透镜" };
+  const X_STAMP = ["普通", "普通", "限制", "机密", "绝密", "绝密", "违禁"];
+  // slots of a colour kit, in the order they are laid out
+  const SNIPERS = ["weapon_awp", "weapon_ssg08", "weapon_scar20", "weapon_g3sg1"];
+  const KIT_SLOTS = [
+    { key: "knife", name: "刀", test: (s) => s.catName === "匕首" },
+    { key: "gloves", name: "手套", test: (s) => s.catName === "手套" },
+    { key: "rifle", name: "步枪", test: (s) => s.catName === "步枪" && !SNIPERS.includes(s.weapon) },
+    { key: "sniper", name: "狙击枪", test: (s) => SNIPERS.includes(s.weapon) },
+    { key: "pistol", name: "手枪", test: (s) => s.catName === "手枪" },
+  ];
   const CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"];
   const WEARS = [
     ["崭新出厂", "Factory New", 0, 0.07], ["略有磨损", "Minimal Wear", 0.07, 0.15],
@@ -32,9 +45,13 @@
   let rarityRank = {}, rarityById = {};
   let cats = [];
   const weaponById = new Map();
+  let xch = [], xr = {};                 // other item chapters (stickers, agents …) and their rarities
+  const xById = new Map();
+  const loading = new Map();
 
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const img = (url, size) => (url ? `${url}/${size}fx${size}f` : "");
+  // Steam economy images take a size suffix; plain icon URLs are used as they are
+  const img = (url, size) => (!url ? "" : url.includes("/economy/image/") ? `${url}/${size}fx${size}f` : url);
   const rc = (s) => (rarityById[s.rarity] || {}).color || "#8c949c";
   const shortName = (s) => (s.name.split("|")[1] || s.name).trim();
   const byRarity = (a, b) => (rarityRank[b.rarity] - rarityRank[a.rarity]) || a.name.localeCompare(b.name, "zh");
@@ -46,6 +63,10 @@
     try {
       const [a, b, c] = await Promise.all(["skins", "crates", "meta"].map((n) => fetch(`data/${n}.json`).then((r) => { if (!r.ok) throw new Error(n); return r.json(); })));
       skins = a; crates = b; meta = c;
+      try {
+        const x = await fetch("data/extras.json").then((r) => (r.ok ? r.json() : null));
+        if (x) { xch = x.chapters; xr = x.rarities; }
+      } catch (e) { /* the weapon chapters still work without these */ }
     } catch (e) {
       app.innerHTML = `<p class="bk-fail">图鉴没有载入成功，请刷新页面重试。</p>`;
       return;
@@ -68,6 +89,7 @@
         weapons.forEach((w) => { w.list.sort(byRarity); weaponById.set(w.id, w); });
         return { name, en: CAT_EN[name] || "", weapons, count: weapons.reduce((n, w) => n + w.list.length, 0) };
       });
+    xch.forEach((ch) => ch.sections.forEach((sec) => { if (sec.items) register(ch, sec, sec.items); }));
     shell();
     addEventListener("hashchange", () => route(false));
     if (wideQuery.addEventListener) wideQuery.addEventListener("change", () => route(true));
@@ -109,6 +131,43 @@
     return lines.join(" ");
   }
 
+  // ----- other item chapters -----
+  function register(ch, sec, items) {
+    sec.items = items;
+    items.forEach((it) => { it._ch = ch.key; it._sec = sec.id; xById.set(it.id, it); });
+  }
+  const xChapter = (key) => xch.find((c) => c.key === key);
+  const xRar = (it) => xr[it.r] || { name: "", color: "#8c949c", rank: 0 };
+  const xHref = (it) => `#/x/${it._ch}/${enc(it._sec)}/${enc(it.id)}`;
+  const xFull = (it) => it.full || (it._ch === "stickers" ? `印花 | ${it.n}` : it.n);
+  function xTag(it) {
+    if (FX[it.fx]) return FX[it.fx];
+    if (it.side) return it.side;
+    if (it.tints > 1) return `${it.tints} 色`;
+    if (it.st) return "ST";
+    return "";
+  }
+  const xCell = (it) => `<a class="bk-cell" href="${xHref(it)}" style="--rc:${xRar(it).color}">
+      <span class="bk-cell-photo">${it.img ? `<img loading="lazy" alt="" src="${esc(img(it.img, 256))}">` : ""}</span>
+      <span class="bk-cell-cap"><i></i><span>${esc(it.n)}</span>${xTag(it) ? `<small>${esc(xTag(it))}</small>` : ""}</span></a>`;
+  const cellOf = (it) => (it.weapon ? photoCell(it) : xCell(it));
+
+  // Sticker sections are loaded the first time they are opened.
+  function ensureSection(ch, sec) {
+    if (sec.items) return true;
+    if (!loading.has(sec.id)) {
+      const want = location.hash;
+      loading.set(sec.id, fetch(`data/${ch.file}/${sec.id}.json`).then((r) => r.json()).then((items) => {
+        register(ch, sec, items);
+        if (location.hash === want) route(true);
+      }).catch(() => loading.delete(sec.id)));
+    }
+    return false;
+  }
+  function loadingSpread(label) {
+    return { left: `${run(esc(label), "调档中")}<p class="bk-empty">正在从档案室调取“${esc(label)}”…</p>`, right: `${run("", "")}`, rightEmpty: true };
+  }
+
   const swatch = (id, href, on, attrs = "") => { const c = colorById[id]; return c ? `<a class="bk-sw${on ? " on" : ""}" href="${href}" style="--sw:${c[2]}" title="${c[1]}" aria-label="${c[1]}色"${on ? ' aria-current="true"' : ""} ${attrs}><span>${c[1]}</span></a>` : ""; };
 
   // ===== spreads =====
@@ -118,28 +177,34 @@
         <span class="bk-cover-top">机密 · 限内部传阅</span>
         <b>军械图鉴</b>
         <span class="bk-cover-sub">COUNTER-STRIKE 2 · 饰品档案</span>
-        <span class="bk-cover-stats">收录 ${skins.length.toLocaleString()} 件 · ${weaponById.size} 种武器 · ${crates.length} 个武器箱</span>
+        <span class="bk-cover-stats">涂装 ${skins.length.toLocaleString()} 件 · 饰品 ${xTotal().toLocaleString()} 件 · ${crates.length} 个武器箱</span>
       </span>
       <span class="bk-cover-open">翻开 ▸</span>
     </button>`;
   }
 
+  const xTotal = () => xch.reduce((n, ch) => n + ch.sections.reduce((m, sec) => m + (sec.count ?? sec.items.length), 0), 0);
+  const xCount = (ch) => ch.sections.reduce((m, sec) => m + (sec.count ?? sec.items.length), 0);
+
   function tocSpread() {
     const left = `${run("卷首", "军械图鉴")}
       <div class="bk-front">
         <h2 class="bk-h">卷首说明</h2>
-        <p class="bk-p">本册收录 Counter-Strike 2 全部武器、刀具与手套涂装共 ${skins.length.toLocaleString()} 件，按武器类别分为 ${cats.length} 章；武器箱与收藏品另列于附录。每件展品附图版一幅、档案一页。</p>
+        <p class="bk-p">本册上编收录 Counter-Strike 2 全部武器、刀具与手套涂装 ${skins.length.toLocaleString()} 件，分 ${cats.length} 章；下编收录贴纸、挂件、探员等饰品 ${xTotal().toLocaleString()} 件，分 ${xch.length} 章；武器箱与收藏品另列于附录。</p>
         <h3 class="bk-h3">查阅方法</h3>
         <ul class="bk-ul"><li>点目录中的章节进入，逐级查到单件展品</li><li>点书角或左右滑动翻页，书签和顶部路径可直接跳转</li><li>知道名字的，直接在下方检索</li></ul>
         <form class="bk-search" data-search role="search"><label for="bk-q">检索</label><input id="bk-q" name="q" type="search" placeholder="皮肤、武器或英文名，如 AK 火神" autocomplete="off"><button type="submit">查</button></form>
-        ${hasColors ? `<div class="bk-colors"><span class="bk-colors-h">按颜色检索</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/color/${c[0]}/all/0`, false)).join("")}</div><p class="bk-colors-tip">先选主色，结果页里可再加一色或限定类别。</p></div>` : ""}
+        ${hasColors ? `<div class="bk-colors"><span class="bk-colors-h">按颜色检索</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/color/${c[0]}/all/0`, false)).join("")}</div><p class="bk-colors-tip">先选主色，结果页里可再加一色或限定类别。<a class="bk-same" href="#/kit/red">按颜色配一套 ›</a></p></div>` : ""}
         <div class="bk-imprint"><b>出版说明</b>数据取自 ByMykel/CSGO-API，图片来自 Steam，每周更新。本册与 Valve 无关，Counter-Strike 及相关素材版权归 Valve Corporation 所有。</div>
       </div>${folio("i")}`;
-    const rows = cats.map((c, i) => `<a class="bk-toc-row" href="#/c/${enc(c.name)}"><span class="no">第${chapterNo(i)}章</span><span class="t">${esc(c.name)}<small>${c.en}</small></span><span class="dots"></span><span class="n">${c.count}</span></a>`).join("");
+    const row = (i, name, en, n) => `<a class="bk-toc-row" href="#/c/${enc(name)}"><span class="no">第${chapterNo(i)}章</span><span class="t">${esc(name)}<small>${en}</small></span><span class="dots"></span><span class="n">${n}</span></a>`;
+    const rows = cats.map((c, i) => row(i, c.name, c.en, c.count)).join("");
+    const xrows = xch.map((c, i) => row(cats.length + i, c.name, c.en, xCount(c))).join("");
     const right = `${run("目录", "CONTENTS")}
       <h2 class="bk-h bk-toc-h">目　录</h2>
-      <nav class="bk-toc" aria-label="目录">${rows}
-        <div class="bk-toc-gap"></div>
+      <nav class="bk-toc" aria-label="目录"><div class="bk-toc-part">上编 · 武器涂装</div>${rows}
+        ${xrows ? `<div class="bk-toc-part">下编 · 饰品与收藏</div>${xrows}` : ""}
+        <div class="bk-toc-part">附　录</div>
         <a class="bk-toc-row" href="#/cases"><span class="no">附录甲</span><span class="t">武器箱<small>CASES</small></span><span class="dots"></span><span class="n">${crates.length}</span></a>
         <a class="bk-toc-row" href="#/colls"><span class="no">附录乙</span><span class="t">收藏品<small>COLLECTIONS</small></span><span class="dots"></span><span class="n">${Object.keys(meta.collections).length}</span></a>
       </nav>${folio("ii")}`;
@@ -164,6 +229,121 @@
     return { left, right };
   }
 
+  function xChapterSpread(xi) {
+    const ch = xch[xi], no = chapterNo(cats.length + xi);
+    const loaded = ch.sections.filter((sec) => sec.items).flatMap((sec) => sec.items);
+    const hero = loaded.length ? loaded.slice().sort((a, b) => xRar(b).rank - xRar(a).rank)[0] : null;
+    const heroImg = hero ? hero.img : (ch.sections[0] || {}).img;
+    const left = `${run(`第${no}章`, ch.en)}
+      <div class="bk-chapter">
+        <span class="bk-ch-no">第${no}章</span>
+        <h2 class="bk-ch-title">${esc(ch.name)}</h2>
+        <span class="bk-ch-en">${ch.en}</span>
+        <figure class="bk-ch-plate"><span class="tape t1" aria-hidden="true"></span><span class="bk-photo" style="--rc:${hero ? xRar(hero).color : "#8c949c"}">${heroImg ? `<img alt="" src="${esc(img(heroImg, 512))}">` : ""}</span><figcaption>卷首图　${esc(hero ? xFull(hero) : ch.sections[0].name)}</figcaption></figure>
+        <p class="bk-ch-meta">本章分 ${ch.sections.length} 节，共 ${xCount(ch).toLocaleString()} 件。</p>
+      </div>${folio(`${no}·1`)}`;
+    const right = `${run(esc(ch.name), "分节索引")}
+      <h2 class="bk-h">分节索引</h2>
+      <nav class="bk-index">${ch.sections.map((sec) => {
+        const pic = sec.img || (sec.items && sec.items[0] && sec.items[0].img);
+        return `<a class="bk-idx-row" href="#/s/${ch.key}/${enc(sec.id)}/0"><span class="th">${pic ? `<img loading="lazy" alt="" src="${esc(img(pic, 128))}">` : ""}</span><span class="t">${esc(sec.name)}</span><span class="dots"></span><span class="n">${sec.count ?? sec.items.length}</span></a>`;
+      }).join("")}</nav>
+      ${folio(`${no}·2`)}`;
+    return { left, right };
+  }
+
+  const NOTES = [
+    ["入门货，但耐看。", "别小看它，老玩家都收过一个。"],
+    ["入门货，但耐看。", "便宜、结实，用一整个赛季也不心疼。"],
+    ["行家都会多看两眼。", "成色不错，价格好商量。"],
+    ["这件在场上很显眼。", "要的人不少，你先看。"],
+    ["压箱底的货，识货的人不多。", "这件我本来不打算拿出来。"],
+    ["压箱底的货，识货的人不多。", "这种东西我一般只给熟客看。"],
+    ["这东西不在任何官方清单上。你没见过它，我也没卖过。"],
+  ];
+
+  function xItemSpread(it, list) {
+    const ch = xChapter(it._ch), sec = ch.sections.find((x) => x.id === it._sec);
+    const idx = list.indexOf(it);
+    const r = xRar(it);
+    const rank = r.rank + 1;
+    const rows = [
+      ["等级", `<span class="bk-rank" style="--rc:${r.color}">${"■".repeat(rank)}${"□".repeat(Math.max(0, 7 - rank))}</span> ${esc(r.name)}`],
+      it.tp && ["类型", esc({ Autograph: "选手签名", Team: "战队", Event: "赛事", Other: "常规" }[it.tp] || it.tp)],
+      FX[it.fx] && ["特效", esc(FX[it.fx])],
+      it.ev && ["赛事", esc(it.ev)],
+      it.team && ["战队", esc(it.team)],
+      it.pl && ["选手", esc(it.pl)],
+      it.side && ["阵营", esc(it.side === "CT" ? "反恐精英（CT）" : "恐怖分子（T）")],
+      it.sub && ["所属", esc(it.sub)],
+      it.tints > 1 && ["颜色", `${it.tints} 种`],
+      it.st && ["附加", "有 StatTrak™ 版本"],
+      it.src && ["来源", esc(it.src)],
+    ].filter(Boolean);
+    const sellable = it.en && !(ch.key === "medals" && !["胸章", "纪念品代币", "观众通行证"].includes(it.tp));
+    const n = idx + 1;
+    const left = `${run(`${esc(ch.name)} · ${esc(sec.name)}`, `图版 ${pad2(n)}`)}
+      <figure class="bk-plate">
+        <span class="tape t1" aria-hidden="true"></span><span class="tape t2" aria-hidden="true"></span>
+        <div class="bk-photo" style="--rc:${r.color}">${it.img ? `<img alt="${esc(xFull(it))}" src="${esc(img(it.img, 512))}">` : `<span class="bk-noimg">图版缺失</span>`}</div>
+        <figcaption><b>图 ${pad2(n)}</b> ${esc(xFull(it))}</figcaption>
+      </figure>
+      <div class="bk-note"><span class="bk-note-h">军需官备注</span><p>${esc(pick(NOTES[Math.min(6, r.rank)], hashOf(it.id)))}</p></div>
+      ${folio(`${ch.key.toUpperCase().slice(0, 3)}·${n}`)}`;
+    const right = `${run(`FM-${ch.key.toUpperCase().slice(0, 4)}-${String(n).padStart(4, "0")}`, esc(r.name))}
+      <div class="bk-stamp" aria-hidden="true">${X_STAMP[Math.min(6, r.rank)]}</div>
+      <div class="bk-kicker">${esc(ch.name)} ／ ${esc(sec.name)}</div>
+      <h2 class="bk-item-h">${esc(it.n)}</h2>
+      <div class="bk-en">${esc(after(it.en))}</div>
+      <table class="bk-form">${rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join("")}</table>
+      ${it.desc ? `<p class="bk-desc">${esc(it.desc)}</p>` : ""}
+      ${it.lore ? `<p class="bk-lore">“${esc(it.lore)}”</p>` : ""}
+      ${sellable ? `<div class="bk-links"><a target="_blank" rel="noopener" href="https://steamcommunity.com/market/listings/730/${enc(it.en)}">Steam 市场</a><a target="_blank" rel="noopener" href="https://buff.163.com/market/csgo#game=csgo&page_num=1&search=${enc(xFull(it))}">BUFF</a></div>` : ""}
+      ${folio(`${ch.key.toUpperCase().slice(0, 3)}·${n}′`)}`;
+    return { left, right, idx,
+      prev: idx > 0 ? xHref(list[idx - 1]) : null,
+      next: idx >= 0 && idx < list.length - 1 ? xHref(list[idx + 1]) : null,
+      pos: `${n} / ${list.length}` };
+  }
+  const after = (en) => { const p = (en || "").split("|").map((x) => x.trim()); return p.length > 1 ? p.slice(1).join(" | ") : en || ""; };
+
+  // ----- colour kit: a knife, gloves, rifle, sniper rifle and pistol in one colour -----
+  function kitCandidates(color) {
+    return KIT_SLOTS.map((slot) => {
+      const seen = new Set();
+      return skins.filter((s) => slot.test(s) && s.colors && s.colors.includes(color))
+        .sort((a, b) => ((a.colors[0] === color ? 0 : 1) - (b.colors[0] === color ? 0 : 1)) || byRarity(a, b))
+        .filter((s) => !seen.has(s.name) && seen.add(s.name));
+    });
+  }
+  function kitSpread(color, picksArg) {
+    const cands = kitCandidates(color);
+    const given = (picksArg || "").split(",").map((id) => byId.get(id));
+    const picks = KIT_SLOTS.map((slot, i) => {
+      const g = given.find((s) => s && slot.test(s));
+      return g || cands[i][0] || null;
+    });
+    const idsOf = (arr) => arr.map((s) => (s ? s.id : "")).join(",");
+    const hrefWith = (i, s) => { const a = picks.slice(); a[i] = s; return `#/kit/${color}/${idsOf(a)}`; };
+    const shuffle = `#/kit/${color}/${idsOf(cands.map((c) => c[Math.floor(Math.random() * Math.min(c.length, 12))] || null))}`;
+    const cname = colorById[color][1];
+    const plate = (s, i) => `<a class="bk-kit-plate${i < 2 ? " big" : ""}" ${s ? `href="#/skin/${enc(s.id)}"` : ""} style="--rc:${s ? rc(s) : "#8c949c"}">
+        <span class="bk-kit-slot">${KIT_SLOTS[i].name}</span>
+        <span class="bk-cell-photo">${s && s.img ? `<img alt="" src="${esc(img(s.img, 360))}">` : `<span class="bk-noimg">缺</span>`}</span>
+        <span class="bk-cell-cap"><i></i><span>${s ? esc(s.weaponName) + " · " + esc(shortName(s)) : "暂无此色"}</span></span></a>`;
+    const left = `${run("配色套装", `${cname}色系`)}
+      <div class="bk-sheet-head"><h2 class="bk-h">${cname}色套装</h2><a class="bk-same" data-replace href="${shuffle}">换一套 ↻</a></div>
+      <div class="bk-filter"><span class="bk-filter-h">主色</span><div class="bk-sws">${COLORS.map((c) => swatch(c[0], `#/kit/${c[0]}`, c[0] === color, "data-replace")).join("")}</div></div>
+      <div class="bk-kit">${picks.map(plate).join("")}</div>
+      ${folio("套·1")}`;
+    const right = `${run("备选", "点一件换上")}
+      ${KIT_SLOTS.map((slot, i) => `<div class="bk-sec"><h3>${slot.name} · ${cands[i].length} 件可选</h3>
+        <div class="bk-strip">${cands[i].slice(0, 10).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}</span></a>`).join("") || `<span class="bk-empty">这个颜色暂时没有</span>`}</div></div>`).join("")}
+      <p class="bk-src"><a href="#/color/${color}/all/0">查看全部${cname}色系 ›</a></p>
+      ${folio("套·2")}`;
+    return { left, right };
+  }
+
   // How many photos fit on one page: aim for plates about 240px wide with 4:3 photos,
   // sized from the real page so both pages always hold the same number of equal cells.
   function gridShape(tall) {
@@ -178,7 +358,7 @@
     return { cols, rows };
   }
 
-  function sheetSpread({ title, sub, list, base, page, runLabel, extra, extraRight }) {
+  function sheetSpread({ title, sub, list, base, page, runLabel, extra, extraRight, cell = cellOf }) {
     const shape = gridShape(!!extra);
     const PER_PAGE = shape.cols * shape.rows;
     const gstyle = ` style="--cols:${shape.cols};--rows:${shape.rows}"`;
@@ -192,11 +372,11 @@
     const tall = extra ? " tall" : "";
     const left = `${run(esc(runLabel || title), "图版索引")}
       <div class="bk-sheet-top${tall}"><div class="bk-sheet-head"><h2 class="bk-h">${esc(title)}</h2>${sub ? `<span>${esc(sub)}</span>` : ""}</div>${extra || ""}</div>
-      ${list.length ? `<div class="bk-grid"${gstyle}>${a.map(photoCell).join("")}</div>` : `<p class="bk-empty">没有查到。可以试试武器名、皮肤名或英文名，比如“AK 火神”或“Doppler”。</p>`}
+      ${list.length ? `<div class="bk-grid"${gstyle}>${a.map(cell).join("")}</div>` : `<p class="bk-empty">没有查到。可以试试武器名、皮肤名或英文名，比如“AK 火神”或“Doppler”。</p>`}
       ${folio(p * 2 + 1)}`;
     const right = `${run(range, pages > 1 ? `${p + 1} / ${pages} 页` : "")}
       ${extraRight ? `<div class="bk-sheet-top${tall} side">${extraRight}</div>` : `<div class="bk-sheet-top${tall} mirror" aria-hidden="true"><span>续 · ${esc(title)}</span></div>`}
-      <div class="bk-grid"${gstyle}>${b.map(photoCell).join("")}</div>
+      <div class="bk-grid"${gstyle}>${b.map(cell).join("")}</div>
       ${!b.length && list.length ? `<p class="bk-end">— 本节完 —</p>` : ""}
       ${folio(p * 2 + 2)}`;
     return { left, right, rightEmpty: !b.length, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
@@ -264,7 +444,7 @@
         <tr><th>等级</th><td><span class="bk-rank" style="--rc:${r.color}">${"■".repeat(rank)}${"□".repeat(Math.max(0, 7 - rank))}</span> ${esc(r.name)}</td></tr>
         <tr><th>磨损区间</th><td>${min.toFixed(2)} — ${max.toFixed(2)}</td></tr>
         <tr><th>可出外观</th><td class="bk-checks">${WEARS.map((w, i) => `<span class="${avail[i] ? "on" : ""}">${avail[i] ? "☒" : "☐"} ${WEAR_SHORT[i]}</span>`).join("")}</td></tr>
-        ${s.colors && s.colors.length ? `<tr><th>主色</th><td class="bk-sws inline">${s.colors.map((c) => swatch(c, `#/color/${c}/${enc(s.catName)}/0`, false)).join("")}<a class="bk-same" href="#/color/${s.colors.join("+")}/${enc(s.catName)}/0">同色系${esc(s.catName)} ›</a></td></tr>` : ""}
+        ${s.colors && s.colors.length ? `<tr><th>主色</th><td class="bk-sws inline">${s.colors.map((c) => swatch(c, `#/color/${c}/${enc(s.catName)}/0`, false)).join("")}<a class="bk-same" href="#/color/${s.colors.join("+")}/${enc(s.catName)}/0">同色系${esc(s.catName)} ›</a><a class="bk-same" href="#/kit/${s.colors[0]}/${enc(s.id)}">以它配一套 ›</a></td></tr>` : ""}
         <tr><th>附加</th><td>${[s.st && "StatTrak™", s.sv && "纪念品", s.phase].filter(Boolean).map(esc).join("　") || "—"}</td></tr>
         ${s.pattern ? `<tr><th>涂装</th><td>${esc(s.pattern)}</td></tr>` : ""}
       </table>
@@ -283,10 +463,24 @@
   function search(q) {
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
     if (!terms.length) return [];
-    return skins.filter((s) => {
-      const hay = `${s.name} ${s.en} ${s.weaponName} ${s.weaponEn} ${s.pattern} ${s.phase}`.toLowerCase();
-      return terms.every((t) => hay.includes(t));
-    }).sort(byRarity);
+    const hit = (hay) => terms.every((t) => hay.toLowerCase().includes(t));
+    const a = skins.filter((s) => hit(`${s.name} ${s.en} ${s.weaponName} ${s.weaponEn} ${s.pattern} ${s.phase}`)).sort(byRarity);
+    const b = [...xById.values()].filter((it) => hit(`${xFull(it)} ${it.en} ${it.team || ""} ${it.pl || ""} ${it.ev || ""} ${it.sub || ""}`))
+      .sort((x, y) => xRar(y).rank - xRar(x).rank);
+    return a.concat(b);
+  }
+  // stickers are only searchable once loaded, so a search pulls in the rest in the background
+  function loadAllStickers() {
+    const ch = xChapter("stickers");
+    if (!ch) return true;
+    const missing = ch.sections.filter((sec) => !sec.items);
+    if (!missing.length) return true;
+    if (!loading.has("*")) {
+      const want = location.hash;
+      loading.set("*", Promise.all(missing.map((sec) => fetch(`data/${ch.file}/${sec.id}.json`).then((r) => r.json()).then((items) => register(ch, sec, items)).catch(() => {})))
+        .then(() => { loading.delete("*"); if (location.hash === want) route(true); }));
+    }
+    return false;
   }
 
   // ===== routing =====
@@ -310,6 +504,8 @@
     if (kind === "toc" || kind === "all") return { kind: "toc", order: [1], crumbs: [], ...tocSpread() };
     if (kind === "c") {
       const ci = cats.findIndex((c) => c.name === arg);
+      const xi = xch.findIndex((c) => c.name === arg);
+      if (ci < 0 && xi >= 0) return { kind: "chapter", order: [2, cats.length + xi], tab: xch[xi].key, crumbs: [[xch[xi].name, null]], ...xChapterSpread(xi) };
       if (ci < 0) return resolve("#/toc");
       return { kind: "chapter", order: [2, ci], tab: ci, crumbs: [[cats[ci].name, null]], ...chapterSpread(ci) };
     }
@@ -321,8 +517,29 @@
     }
     if (kind === "search") {
       const q = arg || "";
+      const all = loadAllStickers();
       const list = search(q);
-      return sheetView([3, 99, q], null, list, `#/search/${enc(q)}`, page(arg2), `检索：${q}`, `${list.length} 件`, "检索结果", [[`检索：${q}`, null]]);
+      return sheetView([3, 99, q], null, list, `#/search/${enc(q)}`, page(arg2), `检索：${q}`, `${list.length} 件${all ? "" : " · 贴纸检索中…"}`, "检索结果", [[`检索：${q}`, null]]);
+    }
+    if (kind === "s" || kind === "x") {
+      const ch = xChapter(arg), xi = xch.indexOf(ch);
+      const sec = ch && ch.sections.find((x) => x.id === arg2);
+      if (!sec) return resolve("#/toc");
+      const chCrumb = [ch.name, `#/c/${enc(ch.name)}`];
+      if (!ensureSection(ch, sec)) return { kind: "loading", order: [3, cats.length + xi, sec.id], tab: ch.key, crumbs: [chCrumb, [sec.name, null]], ...loadingSpread(sec.name) };
+      if (kind === "s") {
+        return sheetView([3, cats.length + xi, sec.id], ch.key, sec.items, `#/s/${ch.key}/${enc(sec.id)}`, page(parts[3]), sec.name, `${sec.items.length} 件`, `${ch.name} · ${sec.name}`, [chCrumb, [sec.name, null]], undefined, undefined);
+      }
+      const it = xById.get(parts[3]);
+      if (!it) return resolve(`#/s/${ch.key}/${enc(sec.id)}/0`);
+      let src = fromList && fromList.list.includes(it) ? fromList : { list: sec.items, key: `#/s/${ch.key}/${enc(sec.id)}`, crumbs: [chCrumb, [sec.name, `#/s/${ch.key}/${enc(sec.id)}/0`]] };
+      const sp = xItemSpread(it, src.list);
+      return { kind: "skin", order: [4, src.key, sp.idx], tab: ch.key, crumbs: [...src.crumbs, [it.n, null]], ...sp };
+    }
+    if (kind === "kit") {
+      const color = colorById[arg] ? arg : "red";
+      if (!hasColors) return resolve("#/toc");
+      return { kind: "kit", order: [3, 97, color], tab: null, crumbs: [["配色套装", null], [`${colorById[color][1]}色`, null]], ...kitSpread(color, arg2) };
     }
     if (kind === "color") {
       const ids = (arg || "").split("+").filter((c) => colorById[c]).slice(0, 3);
@@ -338,7 +555,8 @@
       const extraRight = `<div class="bk-filter"><span class="bk-filter-h">类别</span>
           <div class="bk-chips"><a data-replace href="${href(ids, "all")}"${cat === "all" ? ' aria-current="true"' : ""}>全部</a>${cats.map((c) => `<a data-replace href="${href(ids, c.name)}"${cat === c.name ? ' aria-current="true"' : ""}>${esc(TAB_SHORT[c.name] || c.name)}</a>`).join("")}</div>
         </div>`;
-      return sheetView([3, 98, ids.join("+"), cat], null, list, `#/color/${ids.join("+")}/${enc(cat)}`, page(parts[3]), `${name}色系`, `${list.length} 件${cat !== "all" ? ` · ${cat}` : ""}`, "按颜色检索", [["按颜色", null], [`${name}色系`, null]], extra, extraRight);
+      const extraFull = extra.replace("</div></div>", `</div><a class="bk-same" href="#/kit/${ids[0]}">配一套 ›</a></div>`);
+      return sheetView([3, 98, ids.join("+"), cat], null, list, `#/color/${ids.join("+")}/${enc(cat)}`, page(parts[3]), `${name}色系`, `${list.length} 件${cat !== "all" ? ` · ${cat}` : ""}`, "按颜色检索", [["按颜色", null], [`${name}色系`, null]], extraFull, extraRight);
     }
     if (kind === "cases") {
       const sp = listSpread({ title: "附录甲 · 武器箱", en: "CASES", rows: crates.map(caseRow), base: "#/cases", page: page(arg) });
@@ -427,8 +645,10 @@
           </div>
         </div>
       </div>`;
-    $(".bk-tabs", app).innerHTML = cats.map((c, i) => `<a href="#/c/${enc(c.name)}" data-tab="${i}" title="${esc(c.name)}">${esc(TAB_SHORT[c.name] || c.name)}</a>`).join("")
-      + `<a href="#/cases" data-tab="cases">武器箱</a><a href="#/colls" data-tab="colls">收藏品</a>`;
+    const tab = (href, key, name, cls = "") => `<a href="${href}" data-tab="${key}" title="${esc(name)}" aria-label="${esc(name)}"${cls ? ` class="${cls}"` : ""}>${esc(TAB_CHAR[name] || name.slice(0, 1))}</a>`;
+    $(".bk-tabs", app).innerHTML = cats.map((c, i) => tab(`#/c/${enc(c.name)}`, i, c.name)).join("")
+      + xch.map((c, i) => tab(`#/c/${enc(c.name)}`, c.key, c.name, i === 0 ? "part" : "x")).join("")
+      + tab("#/cases", "cases", "武器箱", "part ap") + tab("#/colls", "colls", "收藏品", "ap");
 
     app.addEventListener("submit", (e) => {
       const f = e.target.closest("[data-search]");

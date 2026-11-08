@@ -125,6 +125,147 @@ def compute_colors(skins):
     print(f"colors: {ok}/{len(skins)}")
 
 
+RANK_WORDS = ["common", "uncommon", "rare", "mythical", "legendary", "ancient", "contraband"]
+COLLECTIBLE_TYPES = {
+    "Pin": "胸章", "Service Medal": "服役勋章", "Operation Coin": "行动硬币", "Stars for Operation": "行动之星",
+    "Operation Pass": "行动通行证", "Premier Season Coin": "优先赛季硬币", "Map Contributor Coin": "地图贡献者硬币",
+    "Tournament Finalist Trophy": "锦标赛奖杯", "Old Pick'Em Trophy": "竞猜奖杯", "Pick'Em Coin": "竞猜硬币",
+    "Fantasy Trophy": "梦幻战队奖杯", "Tournament Pass": "观众通行证", "Souvenir Token": "纪念品代币",
+}
+
+
+def rank_of(rid):
+    """Order rarities across item types: common < … < contraband."""
+    for i, w in enumerate(RANK_WORDS):
+        if rid and f"rarity_{w}" in rid:
+            return i
+    return 0
+
+
+def after_bar(name):
+    parts = [p.strip() for p in name.split("|")]
+    return parts[1] if len(parts) > 1 else name
+
+
+def lore_of(desc):
+    desc = (desc or "").replace("\\n", "\n")
+    import re
+    m = re.findall(r"<i>(.*?)</i>", desc, re.S)
+    text = re.sub(r"<[^>]+>", " ", desc)
+    text = re.sub(r"\s+", " ", text).strip()
+    return (m[-1].strip() if m else ""), text
+
+
+def build_extras():
+    """Stickers, charms, agents, music kits, patches, collectibles and graffiti, trimmed for the book."""
+    rar = {}
+
+    def r(x):
+        ro = x.get("rarity") or {}
+        rid = ro.get("id") or "rarity_default"
+        if rid not in rar:
+            rar[rid] = {"name": ro.get("name", ""), "color": ro.get("color", "#8c949c"), "rank": rank_of(rid)}
+        return rid
+
+    def base(x, **extra):
+        lore, text = lore_of(x.get("description"))
+        out = {"id": x["id"], "n": after_bar(x["name"]), "full": x["name"], "en": x.get("market_hash_name", ""),
+               "r": r(x), "img": x.get("image", "")}
+        out.update({k: v for k, v in extra.items() if v not in (None, "", [])})
+        return out, lore, text
+
+    chapters = []
+
+    # stickers: one section per tournament (newest first), then everything else
+    st = load("zh-CN", "stickers")
+    secs, other = {}, []
+    for x in st:
+        t = x.get("tournament") or {}
+        src = (x.get("crates") or x.get("collections") or [{}])[0].get("name", "")
+        it, lore, _ = base(x, fx=x.get("effect"), tp=x.get("type"), team=(x.get("team") or {}).get("name"),
+                           pl=(x.get("player") or {}).get("name"), src=src, ev=t.get("name"))
+        it.pop("full", None)   # rebuilt in the page as "印花 | name" to keep the file small
+        if t.get("id") is not None:
+            secs.setdefault(t["id"], {"id": f"t{t['id']}", "name": t.get("name", ""), "items": []})["items"].append(it)
+        else:
+            other.append(it)
+    sections = [secs[k] for k in sorted(secs, reverse=True)]
+    other.sort(key=lambda i: (i.get("src") or "~", i["n"]))
+    sections.append({"id": "other", "name": "社区与常规印花", "items": other})
+    chapters.append({"key": "stickers", "name": "贴纸", "en": "STICKERS", "file": "stickers", "sections": sections})
+
+    # charms by collection
+    k = load("zh-CN", "keychains")
+    secs = {}
+    for x in k:
+        c = (x.get("collections") or [{"id": "other", "name": "其他挂件"}])[0]
+        it, lore, text = base(x, src=c.get("name"), lore=lore_of(x.get("description"))[0])
+        secs.setdefault(c["id"], {"id": c["id"], "name": c["name"], "items": []})["items"].append(it)
+    chapters.append({"key": "charms", "name": "挂件", "en": "CHARMS", "sections": list(secs.values())})
+
+    # agents by side
+    a = load("zh-CN", "agents")
+    secs = {"T": {"id": "t", "name": "恐怖分子（T）", "items": []}, "CT": {"id": "ct", "name": "反恐精英（CT）", "items": []}}
+    for x in a:
+        side = (x.get("team") or {}).get("name", "T")
+        lore, text = lore_of(x.get("description"))
+        it, _, _ = base(x, side=side, src=(x.get("collections") or [{}])[0].get("name"), lore=lore,
+                        desc=text.replace(lore, "").strip()[:400], sub=after_bar(x["name"]))
+        it["n"] = x["name"].split("|")[0].strip()
+        secs.setdefault(side, {"id": side.lower(), "name": side, "items": []})["items"].append(it)
+    chapters.append({"key": "agents", "name": "探员", "en": "AGENTS", "sections": list(secs.values())})
+
+    # music kits: one entry per kit, noting whether a StatTrak version exists
+    m = load("zh-CN", "music_kits")
+    st_ids = {x["id"][:-3] for x in m if x["id"].endswith("_st")}
+    items = []
+    for x in m:
+        if x["id"].endswith("_st"):
+            continue
+        lore, text = lore_of(x.get("description"))
+        it, _, _ = base(x, st=x["id"] in st_ids, excl=bool(x.get("exclusive")), desc=text.split("死亡视角")[-1].strip()[:300])
+        items.append(it)
+    chapters.append({"key": "music", "name": "音乐盒", "en": "MUSIC KITS", "sections": [{"id": "all", "name": "全部音乐盒", "items": items}]})
+
+    # patches
+    pa = load("zh-CN", "patches")
+    items = [base(x, lore=lore_of(x.get("description"))[0])[0] for x in pa]
+    chapters.append({"key": "patches", "name": "布章", "en": "PATCHES", "sections": [{"id": "all", "name": "全部布章", "items": items}]})
+
+    # collectibles (pins, coins, trophies) by type
+    co = load("zh-CN", "collectibles")
+    secs = {}
+    for x in co:
+        tp = x.get("type") or "Other"
+        it, _, _ = base(x, tp=COLLECTIBLE_TYPES.get(tp, "其他"), lore=lore_of(x.get("description"))[0])
+        secs.setdefault(tp, {"id": tp.lower().replace(" ", "-").replace("'", ""), "name": COLLECTIBLE_TYPES.get(tp, "其他"), "items": []})["items"].append(it)
+    order = list(COLLECTIBLE_TYPES)
+    chapters.append({"key": "medals", "name": "勋章", "en": "PINS & COINS",
+                     "sections": sorted(secs.values(), key=lambda sct: next((i for i, t in enumerate(order) if COLLECTIBLE_TYPES[t] == sct["name"]), 99))})
+
+    # graffiti: one entry per design, with how many colours it comes in
+    g = load("zh-CN", "graffiti")
+    seen = {}
+    for x in g:
+        d = x["def_index"]
+        if d in seen:
+            seen[d]["tints"] += 1
+            continue
+        name = after_bar(x["name"])
+        if x.get("tint") and "(" in name:
+            name = name.rsplit("(", 1)[0].strip()
+        it, _, _ = base(x, src=(x.get("crates") or [{}])[0].get("name"))
+        it["n"] = name
+        it["tints"] = 1
+        seen[d] = it
+    chapters.append({"key": "graffiti", "name": "涂鸦", "en": "GRAFFITI", "sections": [{"id": "all", "name": "全部涂鸦", "items": list(seen.values())}]})
+
+    for ch in chapters:
+        for sct in ch["sections"]:
+            sct["items"].sort(key=lambda i: -rar[i["r"]]["rank"]) if ch["key"] not in ("stickers",) else None
+    return chapters, rar
+
+
 def build(with_colors):
     zh = load("zh-CN", "skins")
     en = {x["id"]: x for x in load("en", "skins")}
@@ -199,6 +340,24 @@ def build(with_colors):
         compute_colors(skins)
 
     os.makedirs(OUT, exist_ok=True)
+    extra_chapters, extra_rar = build_extras()
+    # stickers are large, so each section ships in its own file and loads when first opened
+    small = []
+    for ch in extra_chapters:
+        if ch.get("file"):
+            folder = os.path.join(OUT, ch["file"])
+            os.makedirs(folder, exist_ok=True)
+            for old in os.listdir(folder):
+                os.remove(os.path.join(folder, old))
+            for sct in ch["sections"]:
+                with open(os.path.join(folder, sct["id"] + ".json"), "w", encoding="utf-8") as f:
+                    json.dump(sct["items"], f, ensure_ascii=False, separators=(",", ":"))
+            small.append({**ch, "sections": [{"id": sct["id"], "name": sct["name"], "count": len(sct["items"]),
+                                              "img": sct["items"][0]["img"] if sct["items"] else ""} for sct in ch["sections"]]})
+        else:
+            small.append(ch)
+    with open(os.path.join(OUT, "extras.json"), "w", encoding="utf-8") as f:
+        json.dump({"chapters": small, "rarities": extra_rar}, f, ensure_ascii=False, separators=(",", ":"))
     meta = {"rarities": rarity_list, "collections": collections,
             "source": "ByMykel/CSGO-API", "count": len(skins)}
     for name, obj in (("skins", skins), ("crates", crates), ("meta", meta)):

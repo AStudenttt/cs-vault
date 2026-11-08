@@ -74,11 +74,14 @@ a { color: inherit; }
 .bk-page a { color: var(--ink); }
 
 /* bookmarks */
-.bk-tabs { position: absolute; left: 100%; top: 30px; bottom: 30px; display: flex; flex-direction: column; gap: 4px; z-index: 1; }
-.bk-tabs a { flex: 0 1 76px; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; writing-mode: vertical-rl; text-decoration: none; font: 700 clamp(.62rem, 1.9vh, .74rem)/1 var(--zh); letter-spacing: .12em; white-space: nowrap; padding: 4px 6px 4px 8px; color: #e6e2c8; border-radius: 0 6px 6px 0;
+.bk-tabs { position: absolute; left: 100%; top: 24px; bottom: 24px; display: flex; flex-direction: column; gap: 3px; z-index: 1; }
+.bk-tabs a { flex: 0 1 44px; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; text-decoration: none; font: 700 .8rem/1 var(--zh); white-space: nowrap; padding: 2px 7px 2px 9px; color: #e6e2c8; border-radius: 0 6px 6px 0;
   background: #5b6240; box-shadow: inset 4px 0 4px -2px rgba(0, 0, 0, .35); transition: transform .2s, background .2s; transform: translateX(-4px); }
 .bk-tabs a:nth-child(even) { background: #6c6f4a; }
-.bk-tabs a:nth-last-child(-n+2) { background: #7a5b3a; }
+.bk-tabs a.x, .bk-tabs a.part:not(.ap) { background: #4f5a52; }
+.bk-tabs a.x:nth-child(even) { background: #5d675d; }
+.bk-tabs a.ap { background: #7a5b3a; }
+.bk-tabs a.part { margin-top: 8px; }
 .bk-tabs a:hover { transform: translateX(0); }
 .bk-tabs a[aria-current="true"] { background: var(--paper); color: var(--ink); transform: translateX(2px); }
 
@@ -131,6 +134,9 @@ a { color: inherit; }
 .bk-toc-row .dots, .bk-idx-row .dots { flex: 1; min-width: 20px; border-bottom: 2px dotted rgba(29, 34, 25, .35); transform: translateY(-4px); }
 .bk-toc-row .n, .bk-idx-row .n { flex: none; font: 400 .95rem var(--type); font-variant-numeric: tabular-nums; }
 .bk-toc-gap { height: 14px; }
+.bk-toc-part { margin: 12px 0 2px; font: 700 .74rem var(--zh); letter-spacing: .3em; color: var(--ink-2); }
+.bk-toc-part:first-child { margin-top: 0; }
+.bk-toc-row { padding: 7px 4px; }
 
 /* colour index */
 .bk-colors { display: flex; flex-direction: column; gap: 8px; }
@@ -153,6 +159,15 @@ a { color: inherit; }
 .bk-chips::-webkit-scrollbar { display: none; }
 .bk-chips a { flex: none; text-decoration: none; font: 400 .74rem var(--zh); padding: 1px 7px; border: 1px solid rgba(29, 34, 25, .5); }
 .bk-chips a[aria-current="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+
+/* colour kit */
+.bk-kit { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: 1.25fr 1fr; gap: 12px 14px; }
+.bk-kit-plate { position: relative; grid-column: span 2; min-height: 0; display: flex; flex-direction: column; gap: 5px; padding: 6px 6px 5px; text-decoration: none; background: var(--paper-hi); box-shadow: 0 1px 0 #c8c4b0, 0 5px 10px rgba(30, 28, 18, .2); transition: transform .15s; }
+.bk-kit-plate.big { grid-column: span 3; }
+.bk-kit-plate:hover { transform: translateY(-3px); }
+.bk-kit-slot { position: absolute; z-index: 1; top: 10px; left: 10px; font: 700 .7rem var(--zh); letter-spacing: .2em; color: var(--paper-hi); background: rgba(29, 34, 25, .75); padding: 2px 6px; }
+.bk-sheet-head .bk-same { margin-left: auto; }
+.bk-strip a[aria-current="true"] { outline: 2px solid var(--red); outline-offset: 1px; color: var(--ink); }
 
 /* ===== chapter opener ===== */
 .bk-chapter { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding-top: 10px; }
@@ -273,6 +288,8 @@ a { color: inherit; }
   .bk-sheet-top, .bk-sheet-top.tall { height: auto; overflow: visible; }
   .bk-sheet-top.mirror { display: none; }
   .bk-cell-photo { aspect-ratio: 4 / 3; flex: none; }
+  .bk-kit { flex: none; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; }
+  .bk-kit-plate, .bk-kit-plate.big { grid-column: span 1; }
   .bk-folio { margin-top: 18px; }
   .bk-stamp { top: 40px; right: 18px; font-size: 1.05rem; }
   .bk-kicker, .bk-item-h { max-width: calc(100% - 100px); }
