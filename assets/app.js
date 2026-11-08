@@ -382,7 +382,18 @@
     // choosing a new knife re-matches the rest; any other swap keeps the kit as it is
     const hrefWith = (i, s) => { if (i === 0) return `#/kit/${color}/${s.id}`; const a = picks.slice(); a[i] = s; return `#/kit/${color}/${idsOf(a)}`; };
     const k0 = cands[0].filter((s) => !isNear(color, s));
-    const shuffle = k0.length ? `#/kit/${color}/${k0[Math.floor(Math.random() * k0.length)].id}` : `#/kit/${color}`;
+    // a new kit: any knife in this colour, then each other piece drawn at random from its six best matches
+    const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    const fresh = [];
+    if (k0.length) fresh[0] = rand(k0);
+    KIT_SLOTS.forEach((slot, i) => {
+      if (i === 0) return;
+      const exact = cands[i].filter((s) => !isNear(color, s));
+      const pool = exact.length ? exact : cands[i];
+      const chosen = fresh.filter(Boolean);
+      fresh[i] = rand(pool.slice().sort((a, b) => matchScore(a, chosen) - matchScore(b, chosen)).slice(0, 6)) || null;
+    });
+    const shuffle = fresh.some(Boolean) ? `#/kit/${color}/${KIT_SLOTS.map((_, i) => (fresh[i] ? fresh[i].id : "")).join(",")}` : `#/kit/${color}`;
     const cname0 = colorById[color][1];
     const pickHref = (i) => `#/kitpick/${color}/${i}/${idsOf(picks)}/0`;
     const tag = (s) => (isNear(color, s) ? "近似" : sameSet(s) ? "同系列" : "");
