@@ -302,7 +302,7 @@ a { color: inherit; }
 .bk-xref small { font: 400 .68rem var(--zh); letter-spacing: .2em; color: var(--ink-2); }
 
 /* ===== turning ===== */
-.bk-leaf, .bk-cover-leaf { position: absolute; top: 10px; bottom: 10px; width: calc(50% - 10px); z-index: 5; transform-style: preserve-3d; pointer-events: none; }
+.bk-leaf, .bk-cover-leaf { will-change: transform; position: absolute; top: 10px; bottom: 10px; width: calc(50% - 10px); z-index: 5; transform-style: preserve-3d; pointer-events: none; }
 .bk-leaf.fwd { left: 50%; transform-origin: left center; animation: bk-turn-f .8s cubic-bezier(.45, .05, .25, 1) both; }
 .bk-leaf.back { left: 10px; transform-origin: right center; animation: bk-turn-b .8s cubic-bezier(.45, .05, .25, 1) both; }
 .bk-leaf .face, .bk-cover-leaf .face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; }

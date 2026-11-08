@@ -63,6 +63,9 @@
   let rarityRank = {}, rarityById = {};
   let cats = [];
   const weaponById = new Map();
+  const skinsByColl = new Map();
+  const skinsByName = new Map(), skinsByFinish = new Map();
+  const push = (m, k, v) => { if (!m.has(k)) m.set(k, []); m.get(k).push(v); };
   let xch = [], xr = {};                 // other item chapters (stickers, agents …) and their rarities
   const xById = new Map();
   const loading = new Map();
@@ -90,7 +93,7 @@
       return;
     }
     meta.rarities.forEach((r, i) => { rarityRank[r.id] = i; rarityById[r.id] = r; });
-    skins.forEach((s) => byId.set(s.id, s));
+    skins.forEach((s, i) => { byId.set(s.id, s); s._n = i + 1; push(skinsByName, s.name, s); push(skinsByFinish, finish(s), s); (s.coll || []).forEach((c) => { if (!skinsByColl.has(c)) skinsByColl.set(c, []); skinsByColl.get(c).push(s); }); });
     hasColors = skins.some((s) => s.colors && s.colors.length);
     crates.forEach((c) => crateById.set(c.id, c));
     const catMap = new Map();
@@ -127,7 +130,7 @@
   const run = (l, r) => `<div class="bk-run"><span>${l}</span><span>${r}</span></div>`;
   const folio = (n) => `<div class="bk-folio">— ${n} —</div>`;
   const photoCell = (s) => `<a class="bk-cell" href="#/skin/${enc(s.id)}" style="--rc:${rc(s)}">
-      <span class="bk-cell-photo">${s.img ? `<img loading="lazy" alt="" src="${esc(img(s.img, 256))}">` : ""}</span>
+      <span class="bk-cell-photo">${s.img ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(s.img, 256))}">` : ""}</span>
       <span class="bk-cell-cap"><i></i><span>${esc(shortName(s))}</span>${s.phase ? `<small>${esc(s.phase)}</small>` : ""}</span></a>`;
 
   function hashOf(str) { let h = 2166136261; for (const c of str) h = Math.imul(h ^ c.codePointAt(0), 16777619); return h >>> 0; }
@@ -166,7 +169,7 @@
     return "";
   }
   const xCell = (it) => `<a class="bk-cell" href="${xHref(it)}" style="--rc:${xRar(it).color}">
-      <span class="bk-cell-photo">${it.img ? `<img loading="lazy" alt="" src="${esc(img(it.img, 256))}">` : ""}</span>
+      <span class="bk-cell-photo">${it.img ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(it.img, 256))}">` : ""}</span>
       <span class="bk-cell-cap"><i></i><span>${esc(it.n)}</span>${xTag(it) ? `<small>${esc(xTag(it))}</small>` : ""}</span></a>`;
   const cellOf = (it) => (it.weapon ? photoCell(it) : xCell(it));
 
@@ -243,7 +246,7 @@
       </div>${folio(`${chapterNo(ci)}·1`)}`;
     const right = `${run(esc(c.name), "武器索引")}
       <h2 class="bk-h">武器索引</h2>
-      <nav class="bk-index">${c.weapons.map((w) => { const b = best(w.list); return `<a class="bk-idx-row" href="#/w/${enc(w.id)}"><span class="th" style="--rc:${rc(b)}">${b.img ? `<img loading="lazy" alt="" src="${esc(img(b.img, 128))}">` : ""}</span><span class="t">${esc(w.name)}${w.en && w.en !== w.name ? `<small>${esc(w.en)}</small>` : ""}</span><span class="dots"></span><span class="n">${w.list.length}</span></a>`; }).join("")}</nav>
+      <nav class="bk-index">${c.weapons.map((w) => { const b = best(w.list); return `<a class="bk-idx-row" href="#/w/${enc(w.id)}"><span class="th" style="--rc:${rc(b)}">${b.img ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(b.img, 128))}">` : ""}</span><span class="t">${esc(w.name)}${w.en && w.en !== w.name ? `<small>${esc(w.en)}</small>` : ""}</span><span class="dots"></span><span class="n">${w.list.length}</span></a>`; }).join("")}</nav>
       ${folio(`${chapterNo(ci)}·2`)}`;
     return { left, right };
   }
@@ -265,7 +268,7 @@
       <h2 class="bk-h">分节索引</h2>
       <nav class="bk-index">${ch.sections.map((sec) => {
         const pic = sec.img || (sec.items && sec.items[0] && sec.items[0].img);
-        return `<a class="bk-idx-row" href="#/s/${ch.key}/${enc(sec.id)}/0"><span class="th">${pic ? `<img loading="lazy" alt="" src="${esc(img(pic, 128))}">` : ""}</span><span class="t">${esc(sec.name)}</span><span class="dots"></span><span class="n">${sec.count ?? sec.items.length}</span></a>`;
+        return `<a class="bk-idx-row" href="#/s/${ch.key}/${enc(sec.id)}/0"><span class="th">${pic ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(pic, 128))}">` : ""}</span><span class="t">${esc(sec.name)}</span><span class="dots"></span><span class="n">${sec.count ?? sec.items.length}</span></a>`;
       }).join("")}</nav>
       ${folio(`${no}·2`)}`;
     return { left, right };
@@ -343,11 +346,20 @@
   }
   const dE = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
   // how far apart two palettes look: each colour finds its nearest partner, weighted by how much of the item it covers
+  const pdCache = new Map();
   function palDist(p, q) {
+    const key = p.map((x) => x[0]).join() + "|" + q.map((x) => x[0]).join();
+    if (pdCache.has(key)) return pdCache.get(key);
+    const v = palDist0(p, q);
+    if (pdCache.size > 50000) pdCache.clear();
+    pdCache.set(key, v);
+    return v;
+  }
+  function palDist0(p, q) {
     const one = (x, y) => x.reduce((sum, [h, w]) => sum + w * Math.min(...y.map(([g]) => dE(lab(h), lab(g)))), 0) / (x.reduce((t, [, w]) => t + w, 0) || 1);
     return (one(p, q) + one(q, p)) / 2;
   }
-  const finish = (s) => shortName(s).replace(/（.*?）/g, "").trim();
+  const finish = (s) => s._f ?? (s._f = shortName(s).replace(/（.*?）/g, "").trim());
   // ===== outfit builder: five ways of putting a kit together =====
   // A kit is a knife, gloves, rifle, sniper rifle and pistol. Each mode is an explicit rule from colour
   // theory, so every pick can say why it is there. URL: #/kit/<mode>.<param>/<ids>/<locks>
@@ -495,13 +507,19 @@
     return setFinishes;
   }
 
+  const candCache = new Map();
   function kitCandidates(k) {
+    const ck = k.mode + "." + k.param;
+    if (!candCache.has(ck)) candCache.set(ck, kitCandidates0(k));
+    return candCache.get(ck);
+  }
+  function kitCandidates0(k) {
     return KIT_SLOTS.map((slot, i) => {
       const seen = new Set();
       let pool = skins.filter((s) => slot.test(s) && admits(s, k.mode, k.param, i));
       if (k.mode === "set") pool.sort((a, b) => ((finish(a) === k.param ? 0 : 1) - (finish(b) === k.param ? 0 : 1)) || byRarity(a, b));
       else if (k.mode === "theme") pool.sort(byRarity);
-      else pool.sort((a, b) => (fitTo(a, k.mode, k.param, i) - fitTo(b, k.mode, k.param, i)) || byRarity(a, b));
+      else { const ft = new Map(pool.map((x) => [x, fitTo(x, k.mode, k.param, i)])); pool.sort((a, b) => (ft.get(a) - ft.get(b)) || byRarity(a, b)); }
       return pool.filter((s) => !seen.has(s.name) && seen.add(s.name));
     });
   }
@@ -514,7 +532,8 @@
       if (!pool.length) return null;
       const chosen = picks.filter(Boolean);
       // gloves in theme and set modes are chosen by colour against the other pieces
-      const ranked = pool.slice().sort((a, b) => together(a, chosen, k.mode, k.param, i, picks[0]) - together(b, chosen, k.mode, k.param, i, picks[0]));
+      const sc = new Map(pool.map((x) => [x, together(x, chosen, k.mode, k.param, i, picks[0])]));
+      const ranked = pool.slice().sort((a, b) => sc.get(a) - sc.get(b));
       if (!rnd) return ranked[0];
       const fresh = ranked.filter((s) => !given[i] || s.name !== given[i].name).slice(0, 8);
       return (fresh.length ? fresh : ranked)[Math.floor(Math.random() * Math.min(fresh.length || ranked.length, 8))];
@@ -525,6 +544,7 @@
     return picks;
   }
 
+  let kitShuffle = null;
   function kitSpread(key, idsArg, locksArg, pickSlot, pickPage) {
     const k = parseKitKey(key);
     if (k.mode === "set" && !finishesForSets().some(([f]) => f === k.param)) k.param = finishesForSets()[0][0];
@@ -544,10 +564,12 @@
       return base(k, p, l);
     };
     const lockHref = (i) => { const l = locks.slice(); l[i] = !l[i]; return base(k, picks, l); };
-    let shuffleK = k;
-    if (k.mode === "set" && !locks.some(Boolean)) { const fl = finishesForSets(); shuffleK = { ...k, param: fl[Math.floor(Math.random() * Math.min(fl.length, 40))][0] }; }
-    const fresh = assemble(shuffleK, shuffleK === k ? cands : kitCandidates(shuffleK), picks, locks, true);
-    const shuffle = base(shuffleK, fresh, locks);
+    // a new kit is drawn only when the button is pressed
+    kitShuffle = () => {
+      let shuffleK = k;
+      if (k.mode === "set" && !locks.some(Boolean)) { const fl = finishesForSets(); shuffleK = { ...k, param: fl[Math.floor(Math.random() * Math.min(fl.length, 40))][0] }; }
+      return base(shuffleK, assemble(shuffleK, kitCandidates(shuffleK), picks, locks, true), locks);
+    };
     const modeName = MODES.find((x) => x[0] === k.mode)[1];
     const pName = k.mode === "set" ? `「${k.param}」` : k.mode === "theme" ? THEMES.find((t) => t[0] === k.param)[1]
       : k.mode === "contrast" ? `${colorById[k.param][1]}撞${hueName(contrastHue(k.param))}` : `${colorById[k.param][1]}色`;
@@ -557,7 +579,7 @@
     if (pickSlot != null && KIT_SLOTS[pickSlot]) {
       const i = pickSlot, list = cands[i];
       const cell = (s) => `<a class="bk-cell${picks[i] && picks[i].id === s.id ? " on" : ""}" href="${hrefWith(i, s)}" style="--rc:${rc(s)}">
-          <span class="bk-cell-photo">${s.img ? `<img loading="lazy" alt="" src="${esc(img(s.img, 256))}">` : ""}</span>
+          <span class="bk-cell-photo">${s.img ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(s.img, 256))}">` : ""}</span>
           <span class="bk-cell-cap"><i></i><span>${esc(`${s.weaponName.replace(/（★）/, "")} · ${shortName(s)}`)}</span>${k.mode === "set" && finish(s) === k.param ? "<small>同系列</small>" : ""}</span></a>`;
       const sp = sheetSpread({ title: `挑选${KIT_SLOTS[i].name}`, sub: `${list.length} 件 · ${modeName} ${pName}`, list, base: `#/kitpick/${kitKey(k)}/${i}/${idsOf(picks)}/${lockStr(locks)}`, page: pickPage || 0, runLabel: `${modeName} · ${KIT_SLOTS[i].name}`, cell });
       return { ...sp, backTo, k };
@@ -582,7 +604,7 @@
       paramRow = `<div class="bk-filter"><span class="bk-filter-h">系列</span><div class="bk-chips">${finishesForSets().slice(0, 30).map(([f]) => `<a data-replace href="#/kit/set.${enc(f)}"${f === k.param ? ' aria-current="true"' : ""}>${esc(f)}</a>`).join("")}</div></div>`;
     }
     const left = `${run("配色套装", modeName)}
-      <div class="bk-sheet-head"><h2 class="bk-h">${esc(pName)}套装</h2><a class="bk-same" data-replace href="${shuffle}">换一套 ↻</a></div>
+      <div class="bk-sheet-head"><h2 class="bk-h">${esc(pName)}套装</h2><a class="bk-same" data-shuffle href="#">换一套 ↻</a></div>
       <div class="bk-filter"><span class="bk-filter-h">配法</span><div class="bk-chips">${modeChips}</div></div>
       ${paramRow}
       <div class="bk-kit">${picks.map(plate).join("")}</div>
@@ -590,7 +612,7 @@
     const right = `${run("备选", "点一件换上，换上的会自动锁定")}
       <p class="bk-kit-rule"><b>${modeName}</b>　${MODES.find((x) => x[0] === k.mode)[2]}。</p>
       ${KIT_SLOTS.map((slot, i) => `<div class="bk-sec"><h3><a href="${pickHref(i)}">${slot.name} · ${cands[i].length} 件可选 ›</a></h3>
-        <div class="bk-strip">${cands[i].slice(0, 9).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}</span></a>`).join("") || `<span class="bk-empty">这个条件下没有</span>`}${cands[i].length > 9 ? `<a class="more" href="${pickHref(i)}"><b>全部</b><b>${cands[i].length} 件 ›</b></a>` : ""}</div></div>`).join("")}
+        <div class="bk-strip">${cands[i].slice(0, 9).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" decoding="async" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}</span></a>`).join("") || `<span class="bk-empty">这个条件下没有</span>`}${cands[i].length > 9 ? `<a class="more" href="${pickHref(i)}"><b>全部</b><b>${cands[i].length} 件 ›</b></a>` : ""}</div></div>`).join("")}
       ${folio("套·2")}`;
     return { left, right, k, pName };
   }
@@ -643,12 +665,12 @@
     const right = `${run(`第 ${from + 1}–${Math.min(rows.length, from + per)} 项`, pages > 1 ? `${p + 1} / ${pages} 页` : "")}<nav class="bk-index">${b.join("")}</nav>${folio(`附·${p * 2 + 2}`)}`;
     return { left, right, rightEmpty: !b.length, page: p, prev: p > 0 ? `${base}/${p - 1}` : null, next: p < pages - 1 ? `${base}/${p + 1}` : null, pos: pages > 1 ? `${p + 1} / ${pages}` : "" };
   }
-  const caseRow = (c) => `<a class="bk-idx-row" href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span class="t">${esc(c.name)}<small>${esc(c.date || "")}</small></span><span class="dots"></span><span class="n">${c.items.length}</span></a>`;
+  const caseRow = (c) => `<a class="bk-idx-row" href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span class="t">${esc(c.name)}<small>${esc(c.date || "")}</small></span><span class="dots"></span><span class="n">${c.items.length}</span></a>`;
   // a collection is shown by its rarest skin; the set's own icon is the fallback
   const collRow = (c, n) => {
-    const top = best(skins.filter((s) => s.coll.includes(c.id)));
+    const top = best(skinsByColl.get(c.id) || []);
     const pic = top && top.img ? img(top.img, 128) : c.img;
-    return `<a class="bk-idx-row" href="#/coll/${enc(c.id)}"><span class="th"${top ? ` style="--rc:${rc(top)}"` : ""}>${pic ? `<img loading="lazy" alt="" src="${esc(pic)}">` : ""}</span><span class="t">${esc(c.name)}</span><span class="dots"></span><span class="n">${n}</span></a>`;
+    return `<a class="bk-idx-row" href="#/coll/${enc(c.id)}"><span class="th"${top ? ` style="--rc:${rc(top)}"` : ""}>${pic ? `<img loading="lazy" decoding="async" alt="" src="${esc(pic)}">` : ""}</span><span class="t">${esc(c.name)}</span><span class="dots"></span><span class="n">${n}</span></a>`;
   };
 
   function siblings(s) {
@@ -664,11 +686,11 @@
     pool.sort((a, b) => rarityRank[b.rarity] - rarityRank[a.rarity]);
     return [label, pool.slice(0, 8)];
   }
-  const fileCode = (s) => `FM-${s.weapon.replace(/^weapon_(knife_)?/, "").replace(/_/g, "").toUpperCase().slice(0, 6)}-${String(skins.indexOf(s) + 1).padStart(4, "0")}`;
+  const fileCode = (s) => `FM-${s.weapon.replace(/^weapon_(knife_)?/, "").replace(/_/g, "").toUpperCase().slice(0, 6)}-${String(s._n).padStart(4, "0")}`;
 
   function itemSpread(s, list) {
     const idx = list.indexOf(s);
-    const variants = skins.filter((x) => x.name === s.name);
+    const variants = skinsByName.get(s.name) || [s];
     const cratesOf = s.crates.map((id) => crateById.get(id)).filter(Boolean);
     const colls = s.coll.map((id) => meta.collections[id]).filter(Boolean);
     const min = s.min ?? 0, max = s.max ?? 1;
@@ -676,14 +698,14 @@
     const r = rarityById[s.rarity] || { name: "", color: "#6b6f5e" };
     const rank = (rarityRank[s.rarity] ?? 0) + 1;
     const [sibLabel, sibs] = siblings(s);
-    const n = skins.indexOf(s) + 1;
+    const n = s._n;
     const left = `${run(`${esc(s.catName)} · ${esc(s.weaponName)}`, `图版 ${pad2(idx + 1)}`)}
       <figure class="bk-plate">
         <span class="tape t1" aria-hidden="true"></span><span class="tape t2" aria-hidden="true"></span>
         <div class="bk-photo" style="--rc:${r.color}">${s.img ? `<img alt="${esc(s.name)}" src="${esc(img(s.img, 512))}">` : `<span class="bk-noimg">图版缺失</span>`}</div>
         <figcaption><b>图 ${pad2(idx + 1)}</b> ${esc(s.name)}${s.phase ? `（${esc(s.phase)}）` : ""}</figcaption>
       </figure>
-      ${variants.length > 1 ? `<div class="bk-strip" aria-label="同款其他版本">${variants.map((v) => `<a href="#/skin/${enc(v.id)}" data-replace aria-current="${v.id === s.id}"><img alt="" loading="lazy" src="${esc(img(v.img, 128))}"><span>${esc(v.phase || "默认")}</span></a>`).join("")}</div>` : ""}
+      ${variants.length > 1 ? `<div class="bk-strip" aria-label="同款其他版本">${variants.map((v) => `<a href="#/skin/${enc(v.id)}" data-replace aria-current="${v.id === s.id}"><img alt="" loading="lazy" decoding="async" src="${esc(img(v.img, 128))}"><span>${esc(v.phase || "默认")}</span></a>`).join("")}</div>` : ""}
       <div class="bk-note"><span class="bk-note-h">军需官备注</span><p>${esc(dealerLine(s, avail))}</p></div>
       ${folio(n * 2)}`;
     const right = `${run(fileCode(s), esc(r.name))}
@@ -705,14 +727,14 @@
       ${s.lore ? `<p class="bk-lore">“${esc(s.lore)}”</p>` : ""}
       <div class="bk-sec"><h3>出处与索引</h3>
         <div class="bk-xref">
-          ${cratesOf.map((c) => `<a href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span><small>${ctypeOf(c)[1]}</small>${esc(c.name)}</span></a>`).join("")}
-          ${colls.map((c) => `<a href="#/coll/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span><small>收藏品</small>${esc(c.name)}</span></a>`).join("")}
-          <a href="#/w/${enc(s.weapon)}/0"><span class="th"><img loading="lazy" alt="" src="${esc(img(s.img, 128))}"></span><span><small>武器</small>全部 ${esc(s.weaponName)}</span></a>
+          ${cratesOf.map((c) => `<a href="#/case/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span><small>${ctypeOf(c)[1]}</small>${esc(c.name)}</span></a>`).join("")}
+          ${colls.map((c) => `<a href="#/coll/${enc(c.id)}"><span class="th">${c.img ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(c.img, 128))}">` : ""}</span><span><small>收藏品</small>${esc(c.name)}</span></a>`).join("")}
+          <a href="#/w/${enc(s.weapon)}/0"><span class="th"><img loading="lazy" decoding="async" alt="" src="${esc(img(s.img, 128))}"></span><span><small>武器</small>全部 ${esc(s.weaponName)}</span></a>
         </div>
         ${!colls.length && !cratesOf.length ? `<p class="bk-src">出处不详</p>` : ""}
       </div>
-      ${(() => { const same = skins.filter((x) => x.weapon !== s.weapon && finish(x) === finish(s)); const seen = new Set(); const u = same.filter((x) => !seen.has(x.weapon) && seen.add(x.weapon)); return u.length ? `<div class="bk-sec"><h3>同款涂装 · 其他武器 ${u.length} 件</h3><div class="bk-strip">${u.map((x) => `<a href="#/skin/${enc(x.id)}" class="see" style="--rc:${rc(x)}"><img alt="" loading="lazy" src="${esc(img(x.img, 128))}"><span>${esc(x.weaponName)}</span></a>`).join("")}</div></div>` : ""; })()}
-      ${sibs.length ? `<div class="bk-sec"><h3>参见 · ${esc(sibLabel)}</h3><div class="bk-strip">${sibs.map((x) => `<a href="#/skin/${enc(x.id)}" style="--rc:${rc(x)}" class="see"><img alt="" loading="lazy" src="${esc(img(x.img, 128))}"><span>${esc(shortName(x))}</span></a>`).join("")}</div></div>` : ""}
+      ${(() => { const same = (skinsByFinish.get(finish(s)) || []).filter((x) => x.weapon !== s.weapon); const seen = new Set(); const u = same.filter((x) => !seen.has(x.weapon) && seen.add(x.weapon)); return u.length ? `<div class="bk-sec"><h3>同款涂装 · 其他武器 ${u.length} 件</h3><div class="bk-strip">${u.map((x) => `<a href="#/skin/${enc(x.id)}" class="see" style="--rc:${rc(x)}"><img alt="" loading="lazy" decoding="async" src="${esc(img(x.img, 128))}"><span>${esc(x.weaponName)}</span></a>`).join("")}</div></div>` : ""; })()}
+      ${sibs.length ? `<div class="bk-sec"><h3>参见 · ${esc(sibLabel)}</h3><div class="bk-strip">${sibs.map((x) => `<a href="#/skin/${enc(x.id)}" style="--rc:${rc(x)}" class="see"><img alt="" loading="lazy" decoding="async" src="${esc(img(x.img, 128))}"><span>${esc(shortName(x))}</span></a>`).join("")}</div></div>` : ""}
       ${s.en ? `<div class="bk-links">${WEARS.filter((w, i) => avail[i]).map((w) => `<a target="_blank" rel="noopener" href="https://steamcommunity.com/market/listings/730/${enc(`${s.en} (${w[1]})`)}">Steam·${w[0]}</a>`).join("")}<a target="_blank" rel="noopener" href="https://buff.163.com/market/csgo#game=csgo&page_num=1&search=${enc(s.name.replace("（★）", ""))}">BUFF</a></div>` : ""}
       ${folio(n * 2 + 1)}`;
     return { left, right, idx,
@@ -724,9 +746,9 @@
   function search(q) {
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
     if (!terms.length) return [];
-    const hit = (hay) => terms.every((t) => hay.toLowerCase().includes(t));
-    const a = skins.filter((s) => hit(`${s.name} ${s.en} ${s.weaponName} ${s.weaponEn} ${s.pattern} ${s.phase}`)).sort(byRarity);
-    const b = [...xById.values()].filter((it) => hit(`${xFull(it)} ${it.en} ${it.team || ""} ${it.pl || ""} ${it.ev || ""} ${it.sub || ""}`))
+    const hit = (hay) => terms.every((t) => hay.includes(t));
+    const a = skins.filter((s) => hit(s._h ?? (s._h = `${s.name} ${s.en} ${s.weaponName} ${s.weaponEn} ${s.pattern} ${s.phase}`.toLowerCase()))).sort(byRarity);
+    const b = [...xById.values()].filter((it) => hit(it._h ?? (it._h = `${xFull(it)} ${it.en} ${it.team || ""} ${it.pl || ""} ${it.ev || ""} ${it.sub || ""}`.toLowerCase())))
       .sort((x, y) => xRar(y).rank - xRar(x).rank);
     return a.concat(b);
   }
@@ -857,7 +879,7 @@
         <p class="bk-p">收录游戏中全部可开启的容器 ${crates.length} 个：武器箱、纪念包、印花与签名胶囊、音乐盒集、布章包、胸章胶囊、涂鸦箱，以及终端机。按类型分节，新的在前；点开任意一个，可看到里面的全部物品。</p></div>
         ${folio("附·1")}`;
       const right = `${run("附录甲", "分节索引")}<h2 class="bk-h">分节索引</h2>
-        <nav class="bk-index">${groups.map(([x, l]) => `<a class="bk-idx-row" href="#/cases/${x[0]}/0"><span class="th">${l[0].img ? `<img loading="lazy" alt="" src="${esc(img(l[0].img, 128))}">` : ""}</span><span class="t">${x[1]}<small>最新：${esc(l[0].name)}</small></span><span class="dots"></span><span class="n">${l.length}</span></a>`).join("")}</nav>
+        <nav class="bk-index">${groups.map(([x, l]) => `<a class="bk-idx-row" href="#/cases/${x[0]}/0"><span class="th">${l[0].img ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(l[0].img, 128))}">` : ""}</span><span class="t">${x[1]}<small>最新：${esc(l[0].name)}</small></span><span class="dots"></span><span class="n">${l.length}</span></a>`).join("")}</nav>
         ${folio("附·2")}`;
       return { kind: "list", order: [2, 90], tab: "cases", crumbs: [["箱子与胶囊", null]], left, right };
     }
@@ -870,7 +892,7 @@
       ["agents", "charms"].forEach((k) => { const ch = xChapter(k); if (ch) ch.sections.forEach((sec) => (sec.items || []).forEach((it) => { if (it.src) { if (!xs.has(it.src)) xs.set(it.src, []); xs.get(it.src).push(it); } })); });
       [...xs.entries()].sort((a, b) => a[0].localeCompare(b[0], "zh")).forEach(([name, items]) => {
         const top = items.slice().sort((a, b) => xRar(b).rank - xRar(a).rank)[0];
-        rows.push(`<a class="bk-idx-row" href="#/by/src/${enc(name)}/0"><span class="th" style="--rc:${xRar(top).color}">${top.img ? `<img loading="lazy" alt="" src="${esc(img(top.img, 128))}">` : ""}</span><span class="t">${esc(name)}<small>${top._ch === "agents" ? "探员" : "挂件"}</small></span><span class="dots"></span><span class="n">${items.length}</span></a>`);
+        rows.push(`<a class="bk-idx-row" href="#/by/src/${enc(name)}/0"><span class="th" style="--rc:${xRar(top).color}">${top.img ? `<img loading="lazy" decoding="async" alt="" src="${esc(img(top.img, 128))}">` : ""}</span><span class="t">${esc(name)}<small>${top._ch === "agents" ? "探员" : "挂件"}</small></span><span class="dots"></span><span class="n">${items.length}</span></a>`);
       });
       const sp = listSpread({ title: "附录乙 · 收藏品", en: "COLLECTIONS", rows, base: "#/colls", page: page(arg) });
       return { kind: "list", order: [2, 91, sp.page], tab: "colls", crumbs: [["附录乙 · 收藏品", null]], ...sp };
@@ -893,7 +915,7 @@
     if (kind === "coll") {
       const c = meta.collections[arg];
       if (!c) return resolve("#/colls");
-      const list = skins.filter((s) => s.coll.includes(arg)).sort(byRarity);
+      const list = (skinsByColl.get(arg) || []).slice().sort(byRarity);
       return sheetView([3, 91, arg], "colls", list, `#/coll/${enc(arg)}`, page(arg2), c.name, `${list.length} 件`, c.name, [["收藏品", "#/colls"], [c.name, null]]);
     }
     if (kind === "skin") {
@@ -973,6 +995,7 @@
     });
     app.addEventListener("click", (e) => {
       if (e.target.closest("[data-open]")) { location.hash = "#/toc"; return; }
+      if (e.target.closest("[data-shuffle]")) { e.preventDefault(); if (kitShuffle) { history.replaceState(null, "", kitShuffle()); route(false, 0); } return; }
       const a = e.target.closest("a[data-replace]");
       if (a) { e.preventDefault(); history.replaceState(null, "", a.getAttribute("href")); route(false, 0); return; }
       const c = e.target.closest(".bk-corner");
@@ -1043,7 +1066,32 @@
     el.addEventListener("click", (e) => { if (swiped) { e.preventDefault(); e.stopPropagation(); swiped = false; } }, true);
   }
 
+  // After a page is shown, fetch the pictures of the pages on either side so turning is instant.
+  const warmed = new Set();
+  let warmTimer = 0;
+  function warmNeighbours(st) {
+    clearTimeout(warmTimer);
+    warmTimer = setTimeout(() => {
+      const idle = window.requestIdleCallback || ((f) => setTimeout(f, 1));
+      idle(() => {
+        for (const h of [st.next, st.prev]) {
+          if (!h || state !== st) continue;
+          let v;
+          try { v = resolve(h); } catch (e) { continue; }
+          const html = (v.left || "") + (v.right || "");
+          for (const m of html.matchAll(/<img[^>]+src="([^"]+)"/g)) {
+            const url = m[1].replace(/&amp;/g, "&");
+            if (warmed.has(url)) continue;
+            warmed.add(url);
+            const im = new Image(); im.decoding = "async"; im.src = url;
+          }
+        }
+      });
+    }, 350);
+  }
+
   function paint(prev, next, dir) {
+    warmNeighbours(next);
     const book = $(".bk-book", app), L = $(".bk-left", app), R = $(".bk-right", app);
     const wide = wideQuery.matches;
     const oldL = L.innerHTML, oldR = R.innerHTML;
