@@ -421,3 +421,35 @@ a { color: inherit; }
 .bk-taste-row:first-of-type .bar i { background: var(--red); }
 .bk-taste-row .n { font: 400 .8rem var(--type); text-align: right; font-variant-numeric: tabular-nums; }
 .bk-taste-row small { font: 400 .7rem var(--type); color: var(--ink-2); }
+
+/* swipe deck */
+.bk-swipe { position: relative; flex: 1; min-height: 240px; margin-top: 8px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.bk-card { --like: 0; --nope: 0; position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 8px; background: var(--paper-hi); box-shadow: 0 2px 0 #c8c4b0, 0 14px 26px rgba(30, 28, 18, .3); cursor: grab; will-change: transform; }
+.bk-card:active { cursor: grabbing; }
+.bk-card.under { transform: scale(.95) translateY(10px); box-shadow: 0 2px 0 #c8c4b0; cursor: default; }
+.bk-card.under .bk-photo { filter: brightness(.7); }
+.bk-card .bk-photo { flex: 1; min-height: 0; border-width: 0; box-shadow: none; pointer-events: none; }
+.bk-card .bk-photo img { pointer-events: none; -webkit-user-drag: none; }
+.bk-card-cap { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.bk-card-cap b { font: 800 1rem var(--zh); letter-spacing: .2em; }
+.bk-card-cap small { font: 400 .74rem var(--type); color: var(--ink-2); }
+.bk-card-mark { position: absolute; z-index: 2; top: 26px; padding: 4px 14px; font: 900 1.5rem var(--zh); letter-spacing: .3em; border: 3px double; background: rgba(241, 239, 229, .85); pointer-events: none; }
+.bk-card-mark.like { left: 24px; color: #2f7a43; border-color: #2f7a43; transform: rotate(-12deg); opacity: var(--like); }
+.bk-card-mark.nope { right: 24px; color: var(--red); border-color: var(--red); transform: rotate(12deg); opacity: var(--nope); }
+.bk-swipe-btns { flex: none; display: flex; justify-content: center; align-items: center; gap: 22px; margin-top: 10px; }
+.bk-swipe-btns button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; width: 64px; height: 64px; border-radius: 50%; border: 2px solid currentColor; background: var(--paper-hi); font: 400 1.5rem/1 var(--zh); cursor: pointer; box-shadow: 0 4px 10px rgba(30, 28, 18, .2); transition: transform .12s; }
+.bk-swipe-btns button small { font: 700 .62rem var(--zh); letter-spacing: .1em; margin-top: 2px; }
+.bk-swipe-btns button:hover:not(:disabled) { transform: scale(1.08); }
+.bk-swipe-btns .nope { color: var(--red); }
+.bk-swipe-btns .like { color: #2f7a43; }
+.bk-swipe-btns .undo { width: 46px; height: 46px; font-size: 1.1rem; color: var(--ink-2); }
+.bk-swipe-btns button:disabled { opacity: .35; cursor: default; }
+.bk-swipe-last { flex: none; margin: 8px 0 0; text-align: center; font: 400 .82rem var(--type); color: var(--ink-2); min-height: 1.3em; }
+.bk-strip.wrap { flex-wrap: wrap; overflow: visible; }
+@media not ((min-width: 1000px) and (min-aspect-ratio: 1/1)) {
+  .bk-swipe { flex: none; height: min(56vh, 460px); }
+}
+.bk-app[data-view="duel"] .bk-left { overflow: visible; z-index: 3; }
+@media not ((min-width: 1000px) and (min-aspect-ratio: 1/1)) {
+  .bk-swipe-last { padding: 0 64px; }
+}
