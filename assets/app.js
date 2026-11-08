@@ -358,7 +358,7 @@
     return score / chosen.length - (rarityRank[s.rarity] || 0) * 1.5;
   }
 
-  function kitSpread(color, picksArg) {
+  function kitSpread(color, picksArg, pickSlot, pickPage) {
     const cands = kitCandidates(color);
     const given = (picksArg || "").split(",").map((id) => byId.get(id));
     // Fill slots in order; each new piece is matched against the pieces already chosen.
@@ -368,21 +368,34 @@
       if (g) { picks[i] = g; return; }
       const chosen = picks.filter(Boolean).concat(given.filter((x) => x && !picks.includes(x)));
       const exact = cands[i].filter((s) => !isNear(color, s));
-      const pool = (exact.length ? exact : cands[i]).slice(0, 80);
+      const pool = exact.length ? exact : cands[i];
       picks[i] = pool.slice().sort((a, b) => matchScore(a, chosen) - matchScore(b, chosen))[0] || null;
     });
     const anchors = picks.filter(Boolean);
     // the backup strips are ordered by how well each item goes with the rest of the kit
     KIT_SLOTS.forEach((slot, i) => {
       const others = anchors.filter((x) => x !== picks[i]);
-      cands[i] = cands[i].slice(0, 80).sort((a, b) => (isNear(color, a) - isNear(color, b)) || (matchScore(a, others) - matchScore(b, others)));
+      cands[i] = cands[i].slice().sort((a, b) => (isNear(color, a) - isNear(color, b)) || (matchScore(a, others) - matchScore(b, others)));
     });
     const sameSet = (s) => anchors.some((x) => x !== s && finish(x) === finish(s));
     const idsOf = (arr) => arr.map((s) => (s ? s.id : "")).join(",");
     // choosing a new knife re-matches the rest; any other swap keeps the kit as it is
     const hrefWith = (i, s) => { if (i === 0) return `#/kit/${color}/${s.id}`; const a = picks.slice(); a[i] = s; return `#/kit/${color}/${idsOf(a)}`; };
     const k0 = cands[0].filter((s) => !isNear(color, s));
-    const shuffle = k0.length ? `#/kit/${color}/${k0[Math.floor(Math.random() * Math.min(k0.length, 20))].id}` : `#/kit/${color}`;
+    const shuffle = k0.length ? `#/kit/${color}/${k0[Math.floor(Math.random() * k0.length)].id}` : `#/kit/${color}`;
+    const cname0 = colorById[color][1];
+    const pickHref = (i) => `#/kitpick/${color}/${i}/${idsOf(picks)}/0`;
+    const tag = (s) => (isNear(color, s) ? "近似" : sameSet(s) ? "同系列" : "");
+
+    // the full list for one slot, as an index sheet; choosing an item puts it in the kit and goes back
+    if (pickSlot != null && KIT_SLOTS[pickSlot]) {
+      const i = pickSlot, list = cands[i];
+      const cell = (s) => `<a class="bk-cell${picks[i] && picks[i].id === s.id ? " on" : ""}" href="${hrefWith(i, s)}" style="--rc:${rc(s)}">
+          <span class="bk-cell-photo">${s.img ? `<img loading="lazy" alt="" src="${esc(img(s.img, 256))}">` : ""}</span>
+          <span class="bk-cell-cap"><i></i><span>${esc(i < 2 ? `${s.weaponName.replace(/（★）/, "")} · ${shortName(s)}` : `${s.weaponName} · ${shortName(s)}`)}</span>${tag(s) ? `<small>${tag(s)}</small>` : ""}</span></a>`;
+      const sp = sheetSpread({ title: `挑选${KIT_SLOTS[i].name}`, sub: `${list.length} 件 · 越靠前越搭`, list, base: `#/kitpick/${color}/${i}/${idsOf(picks)}`, page: pickPage || 0, runLabel: `${cname0}色套装 · ${KIT_SLOTS[i].name}`, cell });
+      return { ...sp, backTo: `#/kit/${color}/${idsOf(picks)}` };
+    }
     const cname = colorById[color][1];
     const plate = (s, i) => `<a class="bk-kit-plate${i < 2 ? " big" : ""}" ${s ? `href="#/skin/${enc(s.id)}"` : ""} style="--rc:${s ? rc(s) : "#8c949c"}">
         <span class="bk-kit-slot">${KIT_SLOTS[i].name}</span>
@@ -394,8 +407,8 @@
       <div class="bk-kit">${picks.map(plate).join("")}</div>
       ${folio("套·1")}`;
     const right = `${run("备选", "点一件换上")}
-      ${KIT_SLOTS.map((slot, i) => { const ex = cands[i].filter((x) => !isNear(color, x)).length; return `<div class="bk-sec"><h3>${slot.name} · ${ex} 件${cname}色${cands[i].length > ex ? `，另有 ${cands[i].length - ex} 件近似色` : ""}</h3>
-        <div class="bk-strip">${cands[i].slice(0, 10).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}${isNear(color, s) ? " · 近似" : sameSet(s) ? " · 同系列" : ""}</span></a>`).join("") || `<span class="bk-empty">这个颜色暂时没有</span>`}</div></div>`; }).join("")}
+      ${KIT_SLOTS.map((slot, i) => { const ex = cands[i].filter((x) => !isNear(color, x)).length; return `<div class="bk-sec"><h3><a href="${pickHref(i)}">${slot.name} · ${ex} 件${cname}色${cands[i].length > ex ? `，另有 ${cands[i].length - ex} 件近似色` : ""} ›</a></h3>
+        <div class="bk-strip">${cands[i].slice(0, 9).map((s) => `<a data-replace href="${hrefWith(i, s)}" class="see" style="--rc:${rc(s)}"${picks[i] && picks[i].id === s.id ? ' aria-current="true"' : ""}><img alt="" loading="lazy" src="${esc(img(s.img, 128))}"><span>${esc(shortName(s))}${tag(s) ? " · " + tag(s) : ""}</span></a>`).join("") || `<span class="bk-empty">这个颜色暂时没有</span>`}${cands[i].length > 9 ? `<a class="more" href="${pickHref(i)}"><b>全部</b><b>${cands[i].length} 件 ›</b></a>` : ""}</div></div>`; }).join("")}
       <p class="bk-src"><a href="#/color/${color}/all/0">查看全部${cname}色系 ›</a></p>
       ${folio("套·2")}`;
     return { left, right };
@@ -592,6 +605,13 @@
       let src = fromList && fromList.list.includes(it) ? fromList : { list: sec.items, key: `#/s/${ch.key}/${enc(sec.id)}`, crumbs: [chCrumb, [sec.name, `#/s/${ch.key}/${enc(sec.id)}/0`]] };
       const sp = xItemSpread(it, src.list);
       return { kind: "skin", order: [4, src.key, sp.idx], tab: ch.key, crumbs: [...src.crumbs, [it.n, null]], ...sp };
+    }
+    if (kind === "kitpick") {
+      const color = colorById[arg] ? arg : "red";
+      if (!hasColors) return resolve("#/toc");
+      const slot = Math.max(0, Math.min(KIT_SLOTS.length - 1, parseInt(arg2, 10) || 0));
+      const sp = kitSpread(color, parts[3], slot, page(parts[4]));
+      return { kind: "sheet-kit", order: [4, 97, color, slot, sp.page], tab: null, crumbs: [["配色套装", sp.backTo], [`挑选${KIT_SLOTS[slot].name}`, null]], ...sp };
     }
     if (kind === "kit") {
       const color = colorById[arg] ? arg : "red";
