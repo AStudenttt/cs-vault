@@ -315,8 +315,9 @@
     return KIT_SLOTS.map((slot) => {
       const seen = new Set();
       const pool = skins.filter((s) => slot.test(s) && s.colors);
-      const exact = pool.filter((s) => s.colors.includes(color))
-        .sort((a, b) => ((a.colors[0] === color ? 0 : 1) - (b.colors[0] === color ? 0 : 1)) || byRarity(a, b));
+      const ref = [[colorById[color][2], 1]];
+      const purity = (s) => (s.pal ? palDist(s.pal.slice(0, 1), ref) : 50) + (s.colors[0] === color ? 0 : 25);
+      const exact = pool.filter((s) => s.colors.includes(color)).sort((a, b) => (purity(a) - purity(b)) || byRarity(a, b));
       const near = exact.length >= 4 ? [] : pool.filter((s) => !s.colors.includes(color) && s.colors.some((c) => NEAR[color].includes(c)))
         .sort((a, b) => ((NEAR[color].includes(a.colors[0]) ? 0 : 1) - (NEAR[color].includes(b.colors[0]) ? 0 : 1)) || byRarity(a, b));
       near.forEach((s) => nearSet.add(color + s.id));
@@ -372,11 +373,6 @@
       picks[i] = pool.slice().sort((a, b) => matchScore(a, chosen) - matchScore(b, chosen))[0] || null;
     });
     const anchors = picks.filter(Boolean);
-    // the backup strips are ordered by how well each item goes with the rest of the kit
-    KIT_SLOTS.forEach((slot, i) => {
-      const others = anchors.filter((x) => x !== picks[i]);
-      cands[i] = cands[i].slice().sort((a, b) => (isNear(color, a) - isNear(color, b)) || (matchScore(a, others) - matchScore(b, others)));
-    });
     const sameSet = (s) => anchors.some((x) => x !== s && finish(x) === finish(s));
     const idsOf = (arr) => arr.map((s) => (s ? s.id : "")).join(",");
     // choosing a new knife re-matches the rest; any other swap keeps the kit as it is
@@ -391,7 +387,7 @@
     KIT_SLOTS.forEach((slot, i) => {
       if (i === 0) return;
       const exact = cands[i].filter((s) => !isNear(color, s));
-      const pool = (exact.length ? exact : cands[i]);
+      const pool = exact.length >= 4 ? exact : cands[i];   // few in this colour: near colours join the draw
       const chosen = fresh.filter(Boolean);
       const ranked = pool.slice().sort((a, b) => matchScore(a, chosen) - matchScore(b, chosen));
       const top = ranked.filter(notNow(i)).slice(0, 10);
@@ -408,7 +404,7 @@
       const cell = (s) => `<a class="bk-cell${picks[i] && picks[i].id === s.id ? " on" : ""}" href="${hrefWith(i, s)}" style="--rc:${rc(s)}">
           <span class="bk-cell-photo">${s.img ? `<img loading="lazy" alt="" src="${esc(img(s.img, 256))}">` : ""}</span>
           <span class="bk-cell-cap"><i></i><span>${esc(i < 2 ? `${s.weaponName.replace(/（★）/, "")} · ${shortName(s)}` : `${s.weaponName} · ${shortName(s)}`)}</span>${tag(s) ? `<small>${tag(s)}</small>` : ""}</span></a>`;
-      const sp = sheetSpread({ title: `挑选${KIT_SLOTS[i].name}`, sub: `${list.length} 件 · 越靠前越搭`, list, base: `#/kitpick/${color}/${i}/${idsOf(picks)}`, page: pickPage || 0, runLabel: `${cname0}色套装 · ${KIT_SLOTS[i].name}`, cell });
+      const sp = sheetSpread({ title: `挑选${KIT_SLOTS[i].name}`, sub: `${list.length} 件 · 越靠前颜色越正`, list, base: `#/kitpick/${color}/${i}/${idsOf(picks)}`, page: pickPage || 0, runLabel: `${cname0}色套装 · ${KIT_SLOTS[i].name}`, cell });
       return { ...sp, backTo: `#/kit/${color}/${idsOf(picks)}` };
     }
     const cname = colorById[color][1];
